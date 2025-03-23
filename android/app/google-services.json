@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "643982657824",
+    "project_id": "chat-4b50e",
+    "storage_bucket": "chat-4b50e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:643982657824:android:6be12e82382ffbb93eaf45",
+        "android_client_info": {
+          "package_name": "com.example.messages"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCilrUinJanjkTV3zDiqk-6R6Nx0-4o3S4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:643982657824:android:33572bab16fd8fa03eaf45",
+        "android_client_info": {
+          "package_name": "com.example.youtube_messenger_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCilrUinJanjkTV3zDiqk-6R6Nx0-4o3S4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

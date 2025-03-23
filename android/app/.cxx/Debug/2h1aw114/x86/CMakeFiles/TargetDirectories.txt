@@ -1,0 +1,2 @@
+C:/Fprograms/Test/Youtube-Messenger-App-master/android/app/.cxx/Debug/2h1aw114/x86/CMakeFiles/edit_cache.dir
+C:/Fprograms/Test/Youtube-Messenger-App-master/android/app/.cxx/Debug/2h1aw114/x86/CMakeFiles/rebuild_cache.dir
