@@ -1,8 +1,9 @@
+// lib/logic/chat/chat_cubit.dart
 import 'dart:async';
 import 'dart:developer';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:youtube_messenger_app/data/models/chat_message.dart';
 
 import 'package:youtube_messenger_app/data/repositories/chat_repository.dart';
 import 'package:youtube_messenger_app/logic/cubits/chat/chat_state.dart';
@@ -49,17 +50,20 @@ class ChatCubit extends Cubit<ChatState> {
     }
   }
 
-  Future<void> sendMessage(
-      {required String content, required String receiverId}) async {
-    if (state.chatRoomId == null) return;
-
-    try {
-      await _chatRepository.sendMessage(
-        chatRoomId: state.chatRoomId!,
-        senderId: currentUserId,
-        receiverId: receiverId,
-        content: content,
-      );
+   Future<void> sendMessage({
+   required String content,
+   required String receiverId,
+   MessageType type = MessageType.text,
+ }) async {
+     if (state.chatRoomId == null) return;
+     try {
+       await _chatRepository.sendMessage(
+         chatRoomId: state.chatRoomId!,
+         senderId: currentUserId,
+         receiverId: receiverId,
+         content: content,
+        type: type,
+       );
     } catch (e) {
       log(e.toString());
       emit(state.copyWith(error: "Failed to send message"));

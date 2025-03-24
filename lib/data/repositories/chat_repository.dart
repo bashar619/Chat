@@ -1,3 +1,4 @@
+// lib/data/repositories/chat_repositories/chat_repositories.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:youtube_messenger_app/data/models/chat_message.dart';
 import 'package:youtube_messenger_app/data/models/chat_room_model.dart';
@@ -88,6 +89,7 @@ class ChatRepository extends BaseRepository {
       "lastMessage": content,
       "lastMessageSenderId": senderId,
       "lastMessageTime": message.timestamp,
+      "lastMessageType": type.toString().split('.').last,
     });
     await batch.commit();
   }

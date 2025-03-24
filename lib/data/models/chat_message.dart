@@ -1,6 +1,7 @@
+// lib/data/models/chat_message.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum MessageType { text, image, video }
+enum MessageType { text, image, video , voice, document, location}
 
 enum MessageStatus { sent, read }
 
@@ -35,8 +36,10 @@ class ChatMessage {
       senderId: data['senderId'] as String,
       receiverId: data['receiverId'] as String,
       content: data['content'] as String,
-      type: MessageType.values.firstWhere((e) => e.toString() == data['type'],
-          orElse: () => MessageType.text),
+      type: MessageType.values.firstWhere(
+    (e) => e.toString().split('.').last == data['type'],
+    orElse: () => MessageType.text,
+),
       status: MessageStatus.values.firstWhere(
           (e) => e.toString() == data['status'],
           orElse: () => MessageStatus.sent),
@@ -51,7 +54,7 @@ class ChatMessage {
       "senderId": senderId,
       "receiverId": receiverId,
       "content": content,
-      "type": type.toString(),
+      "type": type.toString().split('.').last,
       "status": status.toString(),
       "timestamp": timestamp,
       "readBy": readBy,

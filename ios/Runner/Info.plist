@@ -2,6 +2,18 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>We need your location to share it with others in chat</string>
+	<key>NSCameraUsageDescription</key>
+	<string>We need camera access to take pictures</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>We need location access to share your current location</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>We need photo library access to select images</string>
+	<key>UIDocumentPickerUsageDescription</key>
+	<string>We need access to documents to upload files</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>We need access to your microphone to record voice messages.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

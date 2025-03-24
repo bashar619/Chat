@@ -1,14 +1,21 @@
 // lib/presentaion/chat/chat_message_screen.dart
 import 'dart:io';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 import 'package:youtube_messenger_app/data/models/chat_message.dart';
 import 'package:youtube_messenger_app/data/services/service_locator.dart';
 import 'package:youtube_messenger_app/logic/cubits/chat/chat_cubit.dart';
 import 'package:youtube_messenger_app/logic/cubits/chat/chat_state.dart';
 import 'package:youtube_messenger_app/presentation/widgets/loading_dots.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
+import 'package:record/record.dart';
+import 'package:file_picker/file_picker.dart';
 
 class ChatMessageScreen extends StatefulWidget {
   final String receiverId;
@@ -27,6 +34,9 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
   List<ChatMessage> _previousMessages = [];
   bool _isComposing = false;
   bool _showEmoji = false;
+  final AudioRecorder _recorder = AudioRecorder();
+  bool _isRecording = false;
+  
 
   @override
   void initState() {
@@ -46,8 +56,45 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
   }
 
     Future<void> _handleVoiceMessage() async {
-    
+  if (!_isRecording) {
+    // Start recording
+    final dir = await getApplicationDocumentsDirectory();
+    final path = '${dir.path}/${const Uuid().v4()}.m4a';
+
+    await _recorder.start(
+  const RecordConfig(
+    encoder: AudioEncoder.aacLc,
+    bitRate: 128000,
+  ),
+  path: path,
+);
+
+    setState(() {
+      _isRecording = true;
+    });
+  } else {
+    // Stop and send recording
+    final path = await _recorder.stop();
+    setState(() {
+      _isRecording = false;
+    });
+
+    if (path != null) {
+      final file = File(path);
+      final fileName = const Uuid().v4();
+      final ref = FirebaseStorage.instance.ref().child('voiceMessages/$fileName.m4a');
+      final uploadTask = await ref.putFile(file);
+      final downloadUrl = await uploadTask.ref.getDownloadURL();
+
+      // Send audio message as URL
+            await _chatCubit.sendMessage(
+        content: downloadUrl,
+        receiverId: widget.receiverId,
+        type: MessageType.voice,
+      );
+    }
   }
+}
 
   void _onScroll() {
     //load more messages when reaching to top
@@ -256,16 +303,13 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
                       Row(
                         children: [
                           IconButton(
-                            onPressed: () {
-                              setState(() {
-                                _showEmoji = !_showEmoji;
-                                if (_showEmoji) {
-                                  FocusScope.of(context).unfocus();
-                                }
-                              });
-                            },
-                            icon: const Icon(Icons.emoji_emotions),
-                          ),
+              icon: Icon(
+                Icons.attach_file,
+                color: const Color.fromARGB(255, 148, 163, 184),
+                size: size.height * 0.03,
+              ),
+              onPressed: _handleAttachmentPressed,
+            ),
                           const SizedBox(
                             width: 8,
                           ),
@@ -381,6 +425,227 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
           );
         },
       ),
+    );
+  }
+
+  void _handleAttachmentPressed() {
+    final size = MediaQuery.of(context).size;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      builder: (context) {
+        return Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: const LinearGradient(
+              colors: [
+                Color.fromARGB(255, 248, 245, 238),
+                Color.fromARGB(255, 255, 255, 255),
+              ],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+          ),
+          padding: EdgeInsets.fromLTRB(24, 16, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                height: size.height * 0.004,
+                width: size.width * 0.09,
+                decoration: BoxDecoration(
+                  color: const Color.fromARGB(255, 100, 116, 139),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+              ),
+              SizedBox(height: size.height * 0.006),
+              Wrap(
+                children: [
+                  // Camera Option
+                  _buildAttachmentOption(
+  icon: Icons.camera,
+  label: 'Camera',
+  onTap: () async {
+    Navigator.of(context).pop();
+    final picker = ImagePicker();
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (_) => Wrap(
+        children: [
+          ListTile(
+            leading: Icon(Icons.photo_camera),
+            title: Text('Take Photo'),
+            onTap: () => Navigator.pop(context, 'photo'),
+          ),
+          ListTile(
+            leading: Icon(Icons.videocam),
+            title: Text('Record Video'),
+            onTap: () => Navigator.pop(context, 'video'),
+          ),
+        ],
+      ),
+    );
+    if (choice == null) return;
+
+    final XFile? file = choice == 'photo'
+        ? await picker.pickImage(source: ImageSource.camera)
+        : await picker.pickVideo(source: ImageSource.camera);
+    if (file == null) return;
+
+    final ext = choice == 'video' ? '.mp4' : '.jpg';
+    final ref = FirebaseStorage.instance.ref().child('chatMedia/${Uuid().v4()}$ext');
+    final upload = await ref.putFile(File(file.path));
+    final url = await upload.ref.getDownloadURL();
+
+    await _chatCubit.sendMessage(
+      content: url,
+      receiverId: widget.receiverId,
+      type: choice == 'video' ? MessageType.video : MessageType.image,
+    );
+  },
+),
+                  // Gallery Option
+                  _buildAttachmentOption(
+  icon: Icons.image,
+  label: 'Gallery',
+  onTap: () async {
+    Navigator.of(context).pop();
+
+    // Launch native gallery picker for images & videos
+    final result = await FilePicker.platform.pickFiles(type: FileType.media);
+    if (result == null || result.files.single.path == null) return;
+
+    final path = result.files.single.path!;
+    final file = File(path);
+    final fileName = '${Uuid().v4()}_${result.files.single.name}';
+    final ref = FirebaseStorage.instance.ref().child('chatMedia/$fileName');
+    final upload = await ref.putFile(file);
+    final url = await upload.ref.getDownloadURL();
+
+    // Determine message type by extension
+    final ext = result.files.single.extension?.toLowerCase() ?? '';
+    final type = (['mp4','mov','avi','mkv'].contains(ext))
+        ? MessageType.video
+        : MessageType.image;
+
+    await _chatCubit.sendMessage(
+      content: url,
+      receiverId: widget.receiverId,
+      type: type,
+    );
+  },
+),
+                  // Document Option using File Picker
+                  _buildAttachmentOption(
+  icon: Icons.attachment,
+  label: 'Document',
+  onTap: () async {
+    Navigator.of(context).pop();
+    final result = await FilePicker.platform.pickFiles(type: FileType.any);
+    if (result == null) return;
+    final filePath = result.files.single.path!;
+    final file = File(filePath);
+    final fileName = '${Uuid().v4()}_${result.files.single.name}';
+    final ref = FirebaseStorage.instance.ref().child('documents/$fileName');
+    final upload = await ref.putFile(file);
+    final url = await upload.ref.getDownloadURL();
+    await _chatCubit.sendMessage(
+      content: url,
+      receiverId: widget.receiverId,
+      type: MessageType.document,
+    );
+  },
+),
+                  // Location Option (no functionality implemented)
+                  _buildAttachmentOption(
+  icon: Icons.pin,
+  label: 'Location',
+  onTap: () async {
+    Navigator.of(context).pop();
+
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Location services are disabled.')),
+      );
+      return;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Location permission denied')),
+        );
+        return;
+      }
+    }
+    if (permission == LocationPermission.deniedForever) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Location permission permanently denied')),
+      );
+      return;
+    }
+
+    final position = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+
+    final locationUrl =
+        'https://www.google.com/maps/search/?api=1&query=${position.latitude},${position.longitude}';
+
+    await _chatCubit.sendMessage(
+      content: locationUrl,
+      receiverId: widget.receiverId,
+      type: MessageType.location,
+    );
+  },
+),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAttachmentOption({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    final size = MediaQuery.of(context).size;
+    return Column(
+      children: [
+        GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: size.height * 0.075,
+            height: size.height * 0.075,
+            decoration: BoxDecoration(
+              color: const Color.fromARGB(255, 244, 231, 232),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              size: size.height * 0.026,
+              color: const Color.fromARGB(255, 144, 29, 35),
+            ),
+          ),
+        ),
+        SizedBox(height: size.height * 0.008),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: size.height * 0.014,
+            color: const Color.fromARGB(255, 15, 23, 42),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        SizedBox(height: size.height * 0.01),
+      ],
     );
   }
 }
