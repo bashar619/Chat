@@ -1,7 +1,7 @@
 // lib/data/models/chat_message.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum MessageType { text, image, video , voice, document, location}
+enum MessageType { text, image, video , voice, document, mediaCollection}
 
 enum MessageStatus { sent, read }
 
