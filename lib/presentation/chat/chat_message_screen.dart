@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -349,7 +348,11 @@ Future<void> _uploadAndSendFile(File file) async {
                     final message = state.messages[index];
 
                     final isMe = message.senderId == _chatCubit.currentUserId;
-                    return MessageBubble(message: message, isMe: isMe);
+                    return MessageBubble(
+                      message: message, 
+                      isMe: isMe,
+                      chatCubit: _chatCubit,
+                      );
                   },
                 ),
               ),
@@ -546,84 +549,49 @@ Future<void> _handleDocumentAttachment() async {
               Wrap(
                 children: [
                   // Camera Option
-                  _buildAttachmentOption(
-  icon: Icons.camera,
-  label: 'Camera',
-  onTap: () async {
-    Navigator.of(context).pop();
+  _buildAttachmentOption(
+    icon: Icons.camera_alt,
+    label: 'Camera',
+    onTap: () async {
+      Navigator.of(context).pop();
 
-    // 1) Request ALL needed permissions
-    final statuses = await [
-      Permission.camera,
-      Permission.microphone, // for video
-      Permission.photos,     // iOS photo library fallback
-    ].request();
+      // 1) Request camera permission
+      final status = await Permission.camera.request();
+      if (status != PermissionStatus.granted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera permission denied')),
+        );
+        return;
+      }
+      // 2) Launch camera for photo
+      try {
+        final picker = ImagePicker();
+        final XFile? photo = await picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 85,       // optional compression
+          maxWidth: 1280,         // optional resizing
+        );
+        if (photo == null) return;
 
-    print("🔍 Permission statuses: $statuses");
-
-    if (statuses[Permission.camera] != PermissionStatus.granted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Camera permission denied')),
-      );
-      return;
-    }
-
-    try {
-      // 2) Show choice
-      final choice = await showModalBottomSheet<String>(
-        context: context,
-        builder: (_) => Wrap(
-          children: [
-            ListTile(
-              leading: Icon(Icons.photo_camera),
-              title: Text('Take Photo'),
-              onTap: () => Navigator.pop(context, 'photo'),
-            ),
-            ListTile(
-              leading: Icon(Icons.videocam),
-              title: Text('Record Video'),
-              onTap: () => Navigator.pop(context, 'video'),
-            ),
-          ],
-        ),
-      );
-      if (choice == null) return;
-
-      // 3) Attempt camera launch
-      print("▶️ Launching ImagePicker for $choice");
-      final picker = ImagePicker();
-      final XFile? file = choice == 'photo'
-          ? await picker.pickImage(source: ImageSource.camera)
-          : await picker.pickVideo(source: ImageSource.camera);
-
-      print("📸 pickImage result: $file");
-      if (file == null) return;
-
-      // 4) Upload
-      final ext = choice == 'video' ? '.mp4' : '.jpg';
-      final ref = FirebaseStorage.instance
-          .ref()
-          .child('chatMedia/${Uuid().v4()}$ext');
-      final upload = await ref.putFile(File(file.path));
-      final url = await upload.ref.getDownloadURL();
-      await _chatCubit.sendMessage(
-        content: url,
-        receiverId: widget.receiverId,
-        type: choice == 'video' ? MessageType.video : MessageType.image,
-      );
-    } on PlatformException catch (e) {
-      print("❌ PlatformException: ${e.code} — ${e.message}");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Platform error: ${e.message}')),
-      );
-    } catch (e, stack) {
-      print("❌ Unknown error launching camera: $e\n$stack");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
-    }
-  },
-),
+        // 3) Upload & send
+        final ext = '.jpg';
+        final ref = FirebaseStorage.instance
+            .ref()
+            .child('chatMedia/${Uuid().v4()}$ext');
+        final upload = await ref.putFile(File(photo.path));
+        final url = await upload.ref.getDownloadURL();
+        await _chatCubit.sendMessage(
+          content: url,
+          receiverId: widget.receiverId,
+          type: MessageType.image,
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Camera error: $e')),
+        );
+      }
+    },
+  ),
                   // Gallery Option
                  _buildAttachmentOption(
   icon: Icons.image,
@@ -689,92 +657,96 @@ Future<void> _handleDocumentAttachment() async {
 class MessageBubble extends StatelessWidget {
   final ChatMessage message;
   final bool isMe;
+  final ChatCubit chatCubit;
 
   const MessageBubble({
     super.key,
     required this.message,
     required this.isMe,
+     required this.chatCubit,
   });
 
   @override
   Widget build(BuildContext context) {
     Widget contentWidget;
-    
 
     switch (message.type) {
       case MessageType.image:
-  contentWidget = GestureDetector(
-    onTap: () => Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => FullMediaViewer(urls: [message.content]),
-      ),
-    ),
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: Image.network(
-        message.content,
-        width: 200,
-        height: 200,
-        fit: BoxFit.cover,
-      ),
-    ),
-  );
-  break;
+        contentWidget = GestureDetector(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => FullMediaViewer(urls: [message.content]),
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Image.network(
+              message.content,
+              width: 200,
+              height: 200,
+              fit: BoxFit.cover,
+            ),
+          ),
+        );
+        break;
 
       case MessageType.video:
         contentWidget = VideoBubble(url: message.content);
         break;
-        case MessageType.mediaCollection:
-    final urls = List<String>.from(jsonDecode(message.content));
-    final count = urls.length;
-    final display = count > 4 ? urls.sublist(0, 3) : urls;
 
-contentWidget = SizedBox(
-  width: 200,
-  child: GridView.count(
-    crossAxisCount: 2,
-    shrinkWrap: true,
-    physics: NeverScrollableScrollPhysics(),
-    mainAxisSpacing: 4,
-    crossAxisSpacing: 4,
-    children: [
-      for (int i = 0; i < display.length; i++)
-        GestureDetector(
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => FullMediaViewer(urls: urls, initialIndex: i),
-            ),
-          ),
-          child: _buildGridTile(display[i]),
-        ),
-      if (count > 4)
-        GestureDetector(
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => FullMediaViewer(urls: urls, initialIndex: 3),
-            ),
-          ),
-          child: Stack(
-            fit: StackFit.expand,
+      case MessageType.mediaCollection:
+        final urls = List<String>.from(jsonDecode(message.content));
+        final count = urls.length;
+        final display = count > 4 ? urls.sublist(0, 3) : urls;
+
+        contentWidget = SizedBox(
+          width: 200,
+          child: GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 4,
+            crossAxisSpacing: 4,
             children: [
-              _buildGridTile(urls[3]),
-              Container(
-                color: Colors.black54,
-                child: Center(
-                  child: Text('+${count - 4}',
-                      style: const TextStyle(color: Colors.white, fontSize: 24)),
+              for (int i = 0; i < display.length; i++)
+                GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FullMediaViewer(urls: urls, initialIndex: i),
+                    ),
+                  ),
+                  child: _buildGridTile(display[i]),
                 ),
-              ),
+              if (count > 4)
+                GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FullMediaViewer(urls: urls, initialIndex: 3),
+                    ),
+                  ),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _buildGridTile(urls[3]),
+                      Container(
+                        color: Colors.black54,
+                        child: Center(
+                          child: Text(
+                            '+${count - 4}',
+                            style: const TextStyle(color: Colors.white, fontSize: 24),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
-        ),
-    ],
-  ),
-);
-
+        );
+        break;
 
       default:
         contentWidget = Text(
@@ -783,46 +755,179 @@ contentWidget = SizedBox(
         );
     }
 
-    return Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: EdgeInsets.only(
-          left: isMe ? 64 : 8,
-          right: isMe ? 8 : 64,
-          bottom: 4,
-        ),
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: isMe ? Theme.of(context).primaryColor : Theme.of(context).primaryColor.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            contentWidget,
-            const SizedBox(height: 4),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  DateFormat('h:mm a').format(message.timestamp.toDate()),
-                  style: TextStyle(color: isMe ? Colors.white70 : Colors.black54, fontSize: 12),
-                ),
-                if (isMe) ...[
-                  const SizedBox(width: 4),
-                  Icon(
-                    Icons.done_all,
-                    size: 14,
-                    color: message.status == MessageStatus.read ? Colors.red : Colors.white70,
+    return GestureDetector(
+      onLongPress: () => _showOptions(context),
+      child: Align(
+        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          margin: EdgeInsets.only(
+            left: isMe ? 64 : 8,
+            right: isMe ? 8 : 64,
+            bottom: 4,
+          ),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: isMe
+                ? Theme.of(context).primaryColor
+                : Theme.of(context).primaryColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            crossAxisAlignment:
+                isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            children: [
+              contentWidget,
+              const SizedBox(height: 4),
+              //timestamp
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    DateFormat('h:mm a').format(message.timestamp.toDate()),
+                    style: TextStyle(
+                      color: isMe ? Colors.white70 : Colors.black54,
+                      fontSize: 12,
+                    ),
                   ),
+                  if (isMe) ...[
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.done_all,
+                      size: 14,
+                      color: message.status == MessageStatus.read
+                          ? Colors.red
+                          : Colors.white70,
+                          
+                    ),
+                  ],
                 ],
-              ],
-            ),
-          ],
+              ),
+              // Emoji under a text message
+              if (message.reactions.isNotEmpty)
+                Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Wrap(
+                spacing: 8,
+                children: message.reactions.entries.map((entry) {
+              return Chip(
+               label: Text('${entry.key} ${entry.value}'),
+               backgroundColor: Colors.grey.shade200,
+               visualDensity: VisualDensity.compact,
+        );
+      }).toList(),
+    ),
+  ),
+            ],
+          ),
         ),
       ),
     );
   }
+  
+
+  // hold message functionality
+  void _showOptions(BuildContext context) {
+  final isText = message.type == MessageType.text;
+
+  showModalBottomSheet(
+    context: context,
+    builder: (_) => SafeArea(
+      child: Wrap(
+        children: [
+          if (isMe && isText) // only you can edit
+            ListTile(
+              leading: const Icon(Icons.edit),
+              title: const Text('Edit'),
+              onTap: () {
+                Navigator.pop(context);
+                _showEditDialog(context);
+              },
+            ),
+          ListTile(
+            leading: const Icon(Icons.emoji_emotions),
+            title: const Text('React'),
+            onTap: () {
+              Navigator.pop(context);
+              _showReactionPicker(context);
+            },
+          ),
+          if (isMe) // only you can unsend
+            ListTile(
+              leading: const Icon(Icons.delete_forever, color: Colors.red),
+              title: const Text('Unsend', style: TextStyle(color: Colors.red)),
+              onTap: () {
+                Navigator.pop(context);
+                chatCubit.deleteMessage(message.id);
+              },
+            ),
+          ListTile(
+            leading: const Icon(Icons.close),
+            title: const Text('Cancel'),
+            onTap: () => Navigator.pop(context),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+// edit message
+void _showEditDialog(BuildContext context) {
+  final controller = TextEditingController(text: message.content);
+  showDialog(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: const Text('Edit Message'),
+      content: TextField(
+        controller: controller,
+        maxLines: null,
+        decoration: const InputDecoration(border: OutlineInputBorder()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () {
+            final newText = controller.text.trim();
+            if (newText.isNotEmpty && newText != message.content) {
+              chatCubit.editMessage(
+                messageId: message.id,
+                newContent: newText,
+              );
+            }
+            Navigator.pop(context);
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    ),
+  );
+}
+  void _showReactionPicker(BuildContext context) {
+  final emojis = ['👍','❤️','😂','😮','😢','👏'];
+  showModalBottomSheet(
+    context: context,
+    builder: (_) => SafeArea(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: emojis.map((e) {
+          return IconButton(
+            icon: Text(e, style: const TextStyle(fontSize: 24)),
+            onPressed: () {
+              Navigator.pop(context);
+              chatCubit.addReaction(
+                messageId: message.id,
+                emoji: e,
+              );
+            },
+          );
+        }).toList(),
+      ),
+    ),
+  );
+}
+
 }
 
 //multipile media gridview handler

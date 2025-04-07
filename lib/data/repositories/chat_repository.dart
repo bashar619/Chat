@@ -254,4 +254,35 @@ class ChatRepository extends BaseRepository {
       return userData.blockedUsers.contains(currentUserId);
     });
   }
+  /// Deletes a single message document
+  Future<void> deleteMessage({
+    required String chatRoomId,
+    required String messageId,
+  }) {
+    return getChatRoomMessages(chatRoomId)
+        .doc(messageId)
+        .delete();
+  }
+   /// Update a message’s text
+  Future<void> editMessage({
+    required String chatRoomId,
+    required String messageId,
+    required String newContent,
+  }) {
+    return getChatRoomMessages(chatRoomId)
+        .doc(messageId)
+        .update({'content': newContent});
+  }
+  // Message reaction
+  Future<void> addReaction({
+  required String chatRoomId,
+  required String messageId,
+  required String emoji,
+}) {
+  final ref = getChatRoomMessages(chatRoomId).doc(messageId);
+  // increment the reaction count atomically
+  return ref.update({
+    'reactions.$emoji': FieldValue.increment(1),
+  });
+}
 }

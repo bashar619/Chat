@@ -15,6 +15,7 @@ class ChatMessage {
   final MessageStatus status;
   final Timestamp timestamp;
   final List<String> readBy;
+  final Map<String, int> reactions;
 
   ChatMessage({
     required this.id,
@@ -26,6 +27,7 @@ class ChatMessage {
     this.status = MessageStatus.sent,
     required this.timestamp,
     required this.readBy,
+    this.reactions = const {},
   });
 
   factory ChatMessage.fromFirestore(DocumentSnapshot doc) {
@@ -36,6 +38,7 @@ class ChatMessage {
       senderId: data['senderId'] as String,
       receiverId: data['receiverId'] as String,
       content: data['content'] as String,
+      reactions: Map<String, int>.from(data['reactions'] ?? {}),
       type: MessageType.values.firstWhere(
     (e) => e.toString().split('.').last == data['type'],
     orElse: () => MessageType.text,
@@ -58,6 +61,7 @@ class ChatMessage {
       "status": status.toString(),
       "timestamp": timestamp,
       "readBy": readBy,
+      'reactions': reactions,
     };
   }
 

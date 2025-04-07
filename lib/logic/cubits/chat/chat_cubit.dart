@@ -231,4 +231,55 @@ class ChatCubit extends Cubit<ChatState> {
   Future<void> leaveChat() async {
     _isInChat = false;
   }
+ /// Unsend (delete) a message by its ID
+  Future<void> deleteMessage(String messageId) async {
+    final roomId = state.chatRoomId;
+    if (roomId == null) return;
+    try {
+      await _chatRepository.deleteMessage(
+        chatRoomId: roomId,
+        messageId: messageId,
+      );
+      // Firestore stream will automatically emit the updated list
+    } catch (e) {
+      emit(state.copyWith(error: 'Failed to delete message: $e'));
+    }
+  }
+   /// Edit the content of a text message
+  Future<void> editMessage({
+    required String messageId,
+    required String newContent,
+  }) async {
+    final roomId = state.chatRoomId;
+    if (roomId == null) return;
+    try {
+      await _chatRepository.editMessage(
+        chatRoomId: roomId,
+        messageId: messageId,
+        newContent: newContent,
+      );
+      // The Firestore stream will push the updated message
+    } catch (e) {
+      emit(state.copyWith(error: 'Failed to edit message: $e'));
+    }
+  }
+
+  // firestore message rection
+  Future<void> addReaction({
+  required String messageId,
+  required String emoji,
+}) async {
+  final roomId = state.chatRoomId;
+  if (roomId == null) return;
+  try {
+    await _chatRepository.addReaction(
+      chatRoomId: roomId,
+      messageId: messageId,
+      emoji: emoji,
+    );
+  } catch (e) {
+    emit(state.copyWith(error: 'Failed to react: $e'));
+  }
 }
+}
+
