@@ -1,10 +1,12 @@
 //lib/data/chat_room_model.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:youtube_messenger_app/data/models/chat_message.dart';
 class ChatRoomModel {
   final String id;
   final List<String> participants;
   final String? lastMessage;
   final String? lastMessageSenderId;
+  final MessageType? lastMessageType;
   final Timestamp? lastMessageTime;
   final Map<String, Timestamp>? lastReadTime;
   final Map<String, String>? participantsName;
@@ -18,6 +20,7 @@ class ChatRoomModel {
       this.lastMessage,
       this.lastMessageSenderId,
       this.lastMessageTime,
+      this.lastMessageType,
       Map<String, Timestamp>? lastReadTime,
       Map<String, String>? participantsName,
       this.isTyping = false,

@@ -53,7 +53,7 @@ class _MyAppState extends State<MyApp> {
           bloc: getIt<AuthCubit>(),
           builder: (context, state) {
             if (state.status == AuthStatus.initial) {
-              return const Scaffold(
+              return const Scaffold( 
                 body: Center(child: CircularProgressIndicator()),
               );
             }

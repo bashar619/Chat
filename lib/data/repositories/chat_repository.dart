@@ -62,7 +62,7 @@ class ChatRepository extends BaseRepository {
     String? replyToContent,
     MessageType? replyToType,
   }) async {
-    //batch
+    //start a firebase batch
     final batch = firestore.batch();
 
     //get message sub collection
@@ -87,13 +87,39 @@ class ChatRepository extends BaseRepository {
       userReactions: {},
     );
 
+    // Determine the display text for the last message.
+    String displayMessage;
+    switch (type) {
+      case MessageType.text:
+        displayMessage = content;
+        break;
+      case MessageType.image:
+        displayMessage = "📷Image";
+        break;
+      case MessageType.video:
+        displayMessage = "🎥Video";
+        break;
+      case MessageType.voice:
+        displayMessage = "🎤Voice Message";
+        break;
+      case MessageType.document:
+        displayMessage = "📄Document";
+        break;
+      case MessageType.mediaCollection:
+        displayMessage = "🖼️Media";
+        break;
+      default:
+        displayMessage = "Attachment";
+        break;
+    }
+
     //add message to sub collection
     batch.set(messageDoc, message.toMap());
 
     //update chatroom
 
     batch.update(_chatRooms.doc(chatRoomId), {
-      "lastMessage": content,
+      "lastMessage": displayMessage,
       "lastMessageSenderId": senderId,
       "lastMessageTime": message.timestamp,
       "lastMessageType": type.toString().split('.').last,
@@ -145,31 +171,104 @@ class ChatRepository extends BaseRepository {
   }
 
   Future<void> markMessagesAsRead(String chatRoomId, String userId) async {
-    try {
-      final batch = firestore.batch();
+  try {
+    final batch = firestore.batch();
 
-      //get all unread messages where user is receviver
+    // Get all unread messages where the user is the receiver.
+    final unreadMessages = await getChatRoomMessages(chatRoomId)
+        .where("receiverId", isEqualTo: userId)
+        .where('status', isEqualTo: MessageStatus.sent.toString())
+        .get();
 
-      final unreadMessages = await getChatRoomMessages(chatRoomId)
-          .where(
-            "receiverId",
-            isEqualTo: userId,
-          )
-          .where('status', isEqualTo: MessageStatus.sent.toString())
-          .get();
-      print("found ${unreadMessages.docs.length} unread messages");
+    print("found ${unreadMessages.docs.length} unread messages");
 
-      for (final doc in unreadMessages.docs) {
-        batch.update(doc.reference, {
-          'readBy': FieldValue.arrayUnion([userId]),
-          'status': MessageStatus.read.toString(),
-        });
+    // Queue up each message update in the batch.
+    for (final doc in unreadMessages.docs) {
+      batch.update(doc.reference, {
+        'readBy': FieldValue.arrayUnion([userId]),
+        'status': MessageStatus.read.toString(),
+      });
+    } 
 
-        await batch.commit();
+    // Commit all the message updates.
+    await batch.commit();
 
-        print("Marked messaegs as read for user $userId");
-      }
-    } catch (e) {}
+    // Update the room's lastReadTime for this user.
+    await _chatRooms.doc(chatRoomId).update({
+      'lastReadTime.$userId': Timestamp.now(),
+    });
+
+    print("Updated lastReadTime for user $userId in room $chatRoomId");
+  } catch (e) {
+    print("Error marking messages as read: $e");
+  }
+}
+
+  Future<void> deleteMessage({
+    required String chatRoomId,
+    required String messageId,
+  }) async {
+    final roomRef = _chatRooms.doc(chatRoomId);
+    final msgRef = getChatRoomMessages(chatRoomId).doc(messageId);
+
+    // 1) mark the target message as deleted
+    await msgRef.update({
+      'content': 'A message has been deleted',
+      'type': MessageType.deleted.toString().split('.').last,
+      'reactions': {},
+      'userReactions': {},
+    });
+
+    // 2) fetch exactly the most‐recent message in this room
+    final snap = await getChatRoomMessages(chatRoomId)
+        .orderBy('timestamp', descending: true)
+        .limit(1)
+        .get();
+
+    if (snap.docs.isEmpty) {
+      // no messages at all (shouldn’t really happen), just clear
+      await roomRef.update({
+        'lastMessage': '',
+        'lastMessageSenderId': null,
+        'lastMessageTime': null,
+        'lastMessageType': null,
+      });
+      return;
+    }
+
+    // 3) build our ChatMessage model
+    final lastMsg = ChatMessage.fromFirestore(snap.docs.first);
+
+    // 4) pick the display text
+    final display = _displayForType(lastMsg);
+
+    // 5) write it back into the room
+    await roomRef.update({
+      'lastMessage': display,
+      'lastMessageSenderId': lastMsg.senderId,
+      'lastMessageTime': lastMsg.timestamp,
+      'lastMessageType': lastMsg.type.toString().split('.').last,
+    });
+  }
+
+  /// helper that even returns the deletion placeholder
+  String _displayForType(ChatMessage m) {
+    switch (m.type) {
+      case MessageType.text:
+        return m.content;
+      case MessageType.image:
+        return '📷 Image';
+      case MessageType.video:
+        return '🎥 Video';
+      case MessageType.voice:
+        return '🎤 Voice Message';
+      case MessageType.document:
+        return '📄 Document';
+      case MessageType.mediaCollection:
+        return '🖼️ Media';
+      case MessageType.deleted:
+        return 'A message has been deleted';
+    }
   }
 
   Stream<Map<String, dynamic>> getUserOnlineStatus(String userId) {
@@ -259,19 +358,6 @@ class ChatRepository extends BaseRepository {
         .map((doc) {
       final userData = UserModel.fromFirestore(doc);
       return userData.blockedUsers.contains(currentUserId);
-    });
-  }
-
-  /// Deletes a single message document
-  Future<void> deleteMessage({
-    required String chatRoomId,
-    required String messageId,
-  }) {
-    return getChatRoomMessages(chatRoomId).doc(messageId).update({
-      'content': 'A message has been deleted',
-      'type': 'deleted',
-      'reactions': {}, // clear reactions if you like
-      'userReactions': {}, // clear per‑user reactions
     });
   }
 

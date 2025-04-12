@@ -4,8 +4,6 @@
 <dict>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Needed to pick media</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Needed to record video audio</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Needed to take photos/videos</string>
 	<key>NSPhotoLibraryUsageDescription</key>
@@ -13,7 +11,7 @@
 	<key>UIDocumentPickerUsageDescription</key>
 	<string>We need access to documents to upload files</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>We need access to your microphone to record voice messages.</string>
+	<string>We need access to your microphone to record voice messages and record videos.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

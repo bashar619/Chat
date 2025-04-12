@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -40,6 +41,7 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
   bool _showEmoji = false;
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
+  DateTime? _cameraPressStart;
 
   //start recording on press
   Future<void> _startVoiceRecording() async {
@@ -92,30 +94,35 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
         .map((f) => File(f.path!))
         .toList();
 
+    // Let user preview & confirm
     final shouldSend = await showModalBottomSheet<bool>(
           context: context,
           isScrollControlled: true,
           builder: (_) => _MediaPreviewSheet(files: files),
         ) ??
         false;
-
     if (!shouldSend) return;
 
-    // Upload all files in parallel
-    final urls = await Future.wait(files.map((file) async {
-      final ext = file.path.split('.').last;
-      final ref =
-          FirebaseStorage.instance.ref().child('chatMedia/${Uuid().v4()}.$ext');
-      final task = await ref.putFile(file);
-      return await task.ref.getDownloadURL();
-    }));
+    if (files.length == 1) {
+      // Single file → treat as individual image/video
+      await _uploadAndSendFile(files.first);
+    } else {
+      // Multiple files → bundle as mediaCollection
+      final urls = await Future.wait(files.map((file) async {
+        final ext = file.path.split('.').last;
+        final ref = FirebaseStorage.instance
+            .ref()
+            .child('chatMedia/${Uuid().v4()}.$ext');
+        final task = await ref.putFile(file);
+        return await task.ref.getDownloadURL();
+      }));
 
-    // Send ONE message containing all URLs
-    await _chatCubit.sendMessage(
-      content: jsonEncode(urls),
-      receiverId: widget.receiverId,
-      type: MessageType.mediaCollection,
-    );
+      await _chatCubit.sendMessage(
+        content: jsonEncode(urls),
+        receiverId: widget.receiverId,
+        type: MessageType.mediaCollection,
+      );
+    }
   }
 
   Future<void> _uploadAndSendFile(File file) async {
@@ -506,13 +513,27 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
                             InkWell(
                               onTap: _handleSendMessage,
                               child: Container(
-                                child: Icon(Icons.send, color: Colors.white),
+                                padding: EdgeInsets.all(size.height * 0.02),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).primaryColor,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      offset: Offset(0, 7.5),
+                                      blurRadius: 10,
+                                      color: Colors.black.withOpacity(0.15),
+                                    ),
+                                  ],
+                                ),
+                                child: Icon(
+                                  Icons.send,
+                                  color: Colors.white,
+                                  size: size.height * 0.022,
+                                ),
                               ),
                             )
                           else
                             GestureDetector(
-                              onTapDown: (_) => _startVoiceRecording(),
-                              onTapUp: (_) => _stopVoiceRecording(),
                               onTapCancel: () => _stopVoiceRecording(),
                               child: Container(
                                 decoration: const BoxDecoration(
@@ -626,96 +647,51 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
   }
 
   void _handleAttachmentPressed() {
-    final size = MediaQuery.of(context).size;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
-      builder: (context) {
-        return Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            gradient: const LinearGradient(
-              colors: [
-                Color.fromARGB(255, 248, 245, 238),
-                Color.fromARGB(255, 255, 255, 255),
-              ],
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
-            ),
-          ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      // Rename the builder's parameter from `context` to `sheetContext`
+      builder: (BuildContext sheetContext) {
+        final size = MediaQuery.of(context).size;
+        return Padding(
           padding: EdgeInsets.fromLTRB(24, 16, 24, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+          child: Wrap(
+            spacing: size.width * 0.1,
+            runSpacing: size.height * 0.02,
+            alignment: WrapAlignment.center,
             children: [
-              Container(
-                height: size.height * 0.004,
-                width: size.width * 0.09,
-                decoration: BoxDecoration(
-                  color: const Color.fromARGB(255, 100, 116, 139),
-                  borderRadius: BorderRadius.circular(24),
-                ),
+              // PHOTO
+              _buildAttachmentOption(
+                icon: Icons.camera_alt,
+                label: 'Photo',
+                onTap: _handleCameraPhoto,
               ),
-              SizedBox(height: size.height * 0.006),
-              Wrap(
-                children: [
-                  // Camera Option
-                  _buildAttachmentOption(
-                    icon: Icons.camera_alt,
-                    label: 'Camera',
-                    onTap: () async {
-                      Navigator.of(context).pop();
 
-                      // 1) Request camera permission
-                      final status = await Permission.camera.request();
-                      if (status != PermissionStatus.granted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text('Camera permission denied')),
-                        );
-                        return;
-                      }
-                      // 2) Launch camera for photo
-                      try {
-                        final picker = ImagePicker();
-                        final XFile? photo = await picker.pickImage(
-                          source: ImageSource.camera,
-                          imageQuality: 85, // optional compression
-                          maxWidth: 1280, // optional resizing
-                        );
-                        if (photo == null) return;
+              // VIDEO
+              _buildAttachmentOption(
+                icon: Icons.videocam,
+                label: 'Video',
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  await _handleCameraVideo();
+                },
+              ),
 
-                        // 3) Upload & send
-                        final ext = '.jpg';
-                        final ref = FirebaseStorage.instance
-                            .ref()
-                            .child('chatMedia/${Uuid().v4()}$ext');
-                        final upload = await ref.putFile(File(photo.path));
-                        final url = await upload.ref.getDownloadURL();
-                        await _chatCubit.sendMessage(
-                          content: url,
-                          receiverId: widget.receiverId,
-                          type: MessageType.image,
-                        );
-                      } catch (e) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Camera error: $e')),
-                        );
-                      }
-                    },
-                  ),
-                  // Gallery Option
-                  _buildAttachmentOption(
-                    icon: Icons.image,
-                    label: 'Gallery',
-                    onTap: _handleGalleryAttachment,
-                  ),
-                  // Document Option using File Picker
-                  _buildAttachmentOption(
-                    icon: Icons.attachment,
-                    label: 'Document',
-                    onTap: _handleDocumentAttachment,
-                  ),
-                ],
+              // GALLERY
+              _buildAttachmentOption(
+                icon: Icons.image,
+                label: 'Gallery',
+                onTap: _handleGalleryAttachment,
+              ),
+
+              // DOCUMENT
+              _buildAttachmentOption(
+                icon: Icons.insert_drive_file,
+                label: 'Document',
+                onTap: _handleDocumentAttachment,
               ),
             ],
           ),
@@ -728,39 +704,77 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
     required IconData icon,
     required String label,
     required VoidCallback onTap,
+    VoidCallback? onLongPress,
   }) {
     final size = MediaQuery.of(context).size;
     return Column(
       children: [
-        GestureDetector(
-          onTap: onTap,
-          child: Container(
-            width: size.height * 0.075,
-            height: size.height * 0.075,
-            decoration: const BoxDecoration(
-              color: Color.fromARGB(255, 244, 231, 232),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              icon,
-              size: size.height * 0.026,
-              color: const Color.fromARGB(255, 144, 29, 35),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            borderRadius: BorderRadius.circular(size.height * 0.0375),
+            child: Container(
+              width: size.height * 0.075,
+              height: size.height * 0.075,
+              alignment: Alignment.center,
+              decoration: const BoxDecoration(
+                color: Color.fromARGB(255, 244, 231, 232),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon,
+                  size: size.height * 0.026,
+                  color: Color.fromARGB(255, 144, 29, 35)),
             ),
           ),
         ),
         SizedBox(height: size.height * 0.008),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: size.height * 0.014,
-            color: const Color.fromARGB(255, 15, 23, 42),
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+        Text(label,
+            style: TextStyle(
+                fontSize: size.height * 0.014,
+                color: Color.fromARGB(255, 15, 23, 42),
+                fontWeight: FontWeight.w600)),
         SizedBox(height: size.height * 0.01),
       ],
     );
   }
+
+  // for taking pictures
+  Future<void> _handleCameraPhoto() async {
+    Navigator.of(context).pop();
+    if (await Permission.camera.request() != PermissionStatus.granted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Camera permission denied')),
+      );
+      return;
+    }
+    try {
+      final picker = ImagePicker();
+      final photo = await picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 85,
+        maxWidth: 1280,
+      );
+      if (photo == null) return;
+      final ext = '.jpg';
+      final ref =
+          FirebaseStorage.instance.ref().child('chatMedia/${Uuid().v4()}$ext');
+      final upload = await ref.putFile(File(photo.path));
+      final url = await upload.ref.getDownloadURL();
+      await _chatCubit.sendMessage(
+        content: url,
+        receiverId: widget.receiverId,
+        type: MessageType.image,
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Camera error: $e')));
+    }
+  }
+
+  // for taking videos
+  Future<void> _handleCameraVideo() async {}
 }
 
 class MessageBubble extends StatelessWidget {
@@ -1048,6 +1062,18 @@ class MessageBubble extends StatelessWidget {
       builder: (_) => SafeArea(
         child: Wrap(
           children: [
+            if (isText)
+              ListTile(
+                leading: const Icon(Icons.copy),
+                title: const Text('Copy'),
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: message.content));
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Message copied')),
+                  );
+                },
+              ),
             ListTile(
                 leading: const Icon(Icons.reply),
                 title: const Text('Reply'),
