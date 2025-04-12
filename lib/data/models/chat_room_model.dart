@@ -1,5 +1,5 @@
+//lib/data/chat_room_model.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
-
 class ChatRoomModel {
   final String id;
   final List<String> participants;

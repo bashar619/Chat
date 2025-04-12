@@ -58,6 +58,9 @@ class ChatRepository extends BaseRepository {
     required String receiverId,
     required String content,
     MessageType type = MessageType.text,
+    String? replyToMessageId,
+    String? replyToContent,
+    MessageType? replyToType,
   }) async {
     //batch
     final batch = firestore.batch();
@@ -78,6 +81,10 @@ class ChatRepository extends BaseRepository {
       type: type,
       timestamp: Timestamp.now(),
       readBy: [senderId],
+      replyToMessageId: replyToMessageId,
+      replyToContent: replyToContent,
+      replyToType: replyToType,
+      userReactions: {},
     );
 
     //add message to sub collection
@@ -254,16 +261,21 @@ class ChatRepository extends BaseRepository {
       return userData.blockedUsers.contains(currentUserId);
     });
   }
+
   /// Deletes a single message document
   Future<void> deleteMessage({
     required String chatRoomId,
     required String messageId,
   }) {
-    return getChatRoomMessages(chatRoomId)
-        .doc(messageId)
-        .delete();
+    return getChatRoomMessages(chatRoomId).doc(messageId).update({
+      'content': 'A message has been deleted',
+      'type': 'deleted',
+      'reactions': {}, // clear reactions if you like
+      'userReactions': {}, // clear per‑user reactions
+    });
   }
-   /// Update a message’s text
+
+  /// Update a message’s text
   Future<void> editMessage({
     required String chatRoomId,
     required String messageId,
@@ -273,16 +285,45 @@ class ChatRepository extends BaseRepository {
         .doc(messageId)
         .update({'content': newContent});
   }
+
   // Message reaction
   Future<void> addReaction({
-  required String chatRoomId,
-  required String messageId,
-  required String emoji,
-}) {
-  final ref = getChatRoomMessages(chatRoomId).doc(messageId);
-  // increment the reaction count atomically
-  return ref.update({
-    'reactions.$emoji': FieldValue.increment(1),
-  });
-}
+    required String chatRoomId,
+    required String messageId,
+    required String userId,
+    required String emoji,
+  }) {
+    final docRef = getChatRoomMessages(chatRoomId).doc(messageId);
+    return firestore.runTransaction((tx) async {
+      final snap = await tx.get(docRef);
+      final data = snap.data() as Map<String, dynamic>? ?? {};
+
+      // load existing maps
+      final reactions = Map<String, int>.from(data['reactions'] ?? {});
+      final userReactions =
+          Map<String, String>.from(data['userReactions'] ?? {});
+
+      final oldEmoji = userReactions[userId];
+      if (oldEmoji == emoji) {
+        // user tapped same emoji → remove reaction
+        userReactions.remove(userId);
+        reactions[emoji] = (reactions[emoji] ?? 1) - 1;
+        if (reactions[emoji]! <= 0) reactions.remove(emoji);
+      } else {
+        // remove old if present
+        if (oldEmoji != null) {
+          reactions[oldEmoji] = (reactions[oldEmoji] ?? 1) - 1;
+          if (reactions[oldEmoji]! <= 0) reactions.remove(oldEmoji);
+        }
+        // add new
+        userReactions[userId] = emoji;
+        reactions[emoji] = (reactions[emoji] ?? 0) + 1;
+      }
+
+      tx.update(docRef, {
+        'reactions': reactions,
+        'userReactions': userReactions,
+      });
+    });
+  }
 }

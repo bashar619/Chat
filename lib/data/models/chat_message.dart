@@ -1,7 +1,7 @@
 // lib/data/models/chat_message.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum MessageType { text, image, video , voice, document, mediaCollection}
+enum MessageType { text, image, video , voice, document, mediaCollection, deleted}
 
 enum MessageStatus { sent, read }
 
@@ -15,7 +15,11 @@ class ChatMessage {
   final MessageStatus status;
   final Timestamp timestamp;
   final List<String> readBy;
+  final String? replyToMessageId;
+  final String? replyToContent;
+  final MessageType? replyToType;
   final Map<String, int> reactions;
+  final Map<String, String> userReactions;
 
   ChatMessage({
     required this.id,
@@ -27,11 +31,16 @@ class ChatMessage {
     this.status = MessageStatus.sent,
     required this.timestamp,
     required this.readBy,
+    this.replyToMessageId,
+    this.replyToContent,
+    this.replyToType,
     this.reactions = const {},
+    this.userReactions = const {},
   });
 
   factory ChatMessage.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    final replyData = data['replyTo'] as Map<String, dynamic>?;
     return ChatMessage(
       id: doc.id,
       chatRoomId: data['chatRoomId'] as String,
@@ -39,6 +48,16 @@ class ChatMessage {
       receiverId: data['receiverId'] as String,
       content: data['content'] as String,
       reactions: Map<String, int>.from(data['reactions'] ?? {}),
+      userReactions: Map<String, String>.from(data['userReactions'] ?? {}),
+      // parse replyTo if present
+      replyToMessageId: replyData?['messageId'] as String?,
+      replyToContent: replyData?['content'] as String?,
+      replyToType: replyData != null
+        ? MessageType.values.firstWhere(
+            (e) => e.toString().split('.').last == replyData['type'],
+            orElse: () => MessageType.text,
+          )
+        : null,
       type: MessageType.values.firstWhere(
     (e) => e.toString().split('.').last == data['type'],
     orElse: () => MessageType.text,
@@ -52,7 +71,7 @@ class ChatMessage {
   }
 
   Map<String, dynamic> toMap() {
-    return {
+    final map = {
       "chatRoomId": chatRoomId,
       "senderId": senderId,
       "receiverId": receiverId,
@@ -62,7 +81,17 @@ class ChatMessage {
       "timestamp": timestamp,
       "readBy": readBy,
       'reactions': reactions,
+      'userReactions': userReactions,
     };
+   if (replyToMessageId != null) {
+      map['replyTo'] = {
+        'messageId': replyToMessageId,
+        'content': replyToContent,
+        'type': replyToType!.toString().split('.').last,
+      };
+    }
+
+    return map;
   }
 
   ChatMessage copyWith({
@@ -75,6 +104,10 @@ class ChatMessage {
     MessageStatus? status,
     Timestamp? timestamp,
     List<String>? readBy,
+    String? replyToMessageId,
+    String? replyToContent,
+    MessageType? replyToType,
+
   }) {
     return ChatMessage(
       id: id ?? this.id,
@@ -86,6 +119,9 @@ class ChatMessage {
       status: status ?? this.status,
       timestamp: timestamp ?? this.timestamp,
       readBy: readBy ?? this.readBy,
+      replyToMessageId: replyToMessageId ?? this.replyToMessageId,
+      replyToContent: replyToContent ?? this.replyToContent,
+      replyToType: replyToType ?? this.replyToType,
     );
   }
 }

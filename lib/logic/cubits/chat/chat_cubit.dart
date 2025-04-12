@@ -54,6 +54,10 @@ class ChatCubit extends Cubit<ChatState> {
    required String content,
    required String receiverId,
    MessageType type = MessageType.text,
+   String? replyToMessageId,
+   String? replyToContent,
+   MessageType? replyToType,
+
  }) async {
      if (state.chatRoomId == null) return;
      try {
@@ -63,6 +67,9 @@ class ChatCubit extends Cubit<ChatState> {
          receiverId: receiverId,
          content: content,
         type: type,
+        replyToMessageId: replyToMessageId,
+        replyToContent: replyToContent,
+        replyToType: replyToType,
        );
     } catch (e) {
       log(e.toString());
@@ -276,6 +283,7 @@ class ChatCubit extends Cubit<ChatState> {
       chatRoomId: roomId,
       messageId: messageId,
       emoji: emoji,
+      userId: currentUserId,
     );
   } catch (e) {
     emit(state.copyWith(error: 'Failed to react: $e'));
