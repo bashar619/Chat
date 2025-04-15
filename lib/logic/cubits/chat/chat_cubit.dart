@@ -115,9 +115,9 @@ class ChatCubit extends Cubit<ChatState> {
   void _subscribeToMessages(String chatRoomId) {
     _messageSubscription?.cancel();
     _messageSubscription =
-        _chatRepository.getMessages(chatRoomId).listen((messages) {
+        _chatRepository.getMessages(chatRoomId).listen((messages) async {
       if (_isInChat) {
-        _markMessagesAsRead(chatRoomId);
+        await _markMessagesAsRead(chatRoomId);
       }
       emit(
         state.copyWith(

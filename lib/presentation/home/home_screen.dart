@@ -1,6 +1,7 @@
 // lib/presentation/home/home_screen.dart
 import 'package:flutter/material.dart';
 import 'package:youtube_messenger_app/data/models/chat_room_model.dart';
+import 'package:youtube_messenger_app/data/models/user_model.dart';
 import 'package:youtube_messenger_app/data/repositories/auth_repository.dart';
 import 'package:youtube_messenger_app/data/repositories/chat_repository.dart';
 import 'package:youtube_messenger_app/data/repositories/contact_repository.dart';
@@ -28,6 +29,8 @@ class _HomeScreenState extends State<HomeScreen> {
   String      _search = '';
   ChatFilter  _filter = ChatFilter.all;
   ChatSort    _sort   = ChatSort.newest;
+  List<UserModel> _searchResults = [];
+  bool _isSearching = false;
 
   @override
   void initState() {
@@ -35,6 +38,23 @@ class _HomeScreenState extends State<HomeScreen> {
     _contactRepository = getIt<ContactRepository>();
     _chatRepository    = getIt<ChatRepository>();
     _currentUserId     = getIt<AuthRepository>().currentUser?.uid ?? "";
+  }
+
+  Future<void> _searchUsers(String query) async {
+    if (query.isEmpty) {
+      setState(() {
+        _searchResults = [];
+        _isSearching = false;
+      });
+      return;
+    }
+
+    setState(() => _isSearching = true);
+    final results = await _contactRepository.searchUsers(query);
+    setState(() {
+      _searchResults = results;
+      _isSearching = false;
+    });
   }
 
   void _showContactsList(BuildContext context) { /* unchanged */ }
@@ -129,27 +149,26 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   bool _passesReadFilter(ChatRoomModel chat) {
-  // If the current user sent the last message, treat the room as read.
-  if (chat.lastMessageSenderId == _currentUserId) return true;
+    // If the current user sent the last message, treat the room as read.
+    if (chat.lastMessageSenderId == _currentUserId) return true;
 
-  final lastMsgTs = chat.lastMessageTime?.toDate();
-  final lastReadTs = chat.lastReadTime?[_currentUserId]?.toDate();
-  
-  // The room is unread if the last message exists and its timestamp is later
-  // than the last read timestamp (or if no last read timestamp is stored).
-  final isUnread =
-      lastMsgTs != null && (lastReadTs == null || lastMsgTs.isAfter(lastReadTs));
+    final lastMsgTs = chat.lastMessageTime?.toDate();
+    final lastReadTs = chat.lastReadTime?[_currentUserId]?.toDate();
+    
+    // The room is unread if the last message exists and its timestamp is later
+    // than the last read timestamp (or if no last read timestamp is stored).
+    final isUnread =
+        lastMsgTs != null && (lastReadTs == null || lastMsgTs.isAfter(lastReadTs));
 
-  switch (_filter) {
-    case ChatFilter.all:
-      return true;
-    case ChatFilter.read:
-      return !isUnread;
-    case ChatFilter.unread:
-      return isUnread;
+    switch (_filter) {
+      case ChatFilter.all:
+        return true;
+      case ChatFilter.read:
+        return !isUnread;
+      case ChatFilter.unread:
+        return isUnread;
+    }
   }
-}
-
 
   String _otherName(ChatRoomModel chat) {
     final otherId = chat.participants.firstWhere((id) => id != _currentUserId);
@@ -199,7 +218,7 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.all(8),
             child: TextField(
               decoration: InputDecoration(
-                hintText: 'Search chats',
+                hintText: 'Search users...',
                 prefixIcon: const Icon(Icons.search),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
@@ -207,82 +226,165 @@ class _HomeScreenState extends State<HomeScreen> {
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
               ),
-              onChanged: (v) => setState(() => _search = v.trim().toLowerCase()),
-            ),
-          ),
-
-          //chat Rooms List
-          Expanded(
-            child: StreamBuilder<List<ChatRoomModel>>(
-              stream: _chatRepository.getChatRooms(_currentUserId),
-              builder: (context, snap) {
-                if (snap.hasError) return Center(child: Text("Error: ${snap.error}"));
-                if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-
-                // filter by name & read/unread
-                final filtered = snap.data!
-                    .where((c) => _otherName(c).toLowerCase().contains(_search))
-                    .where(_passesReadFilter)
-                    .toList();
-
-                // then sort
-                final sorted = _applySort(filtered);
-
-                if (sorted.isEmpty) {
-                  return Center(
-                    child: Text(
-                      _search.isEmpty
-                          ? 'No recent chats'
-                          : 'No chats match "$_search"',
-                    ),
-                  );
-                }
-
-                return ListView.builder(
-                  itemCount: sorted.length,
-                  itemBuilder: (context, i) {
-                    final chat    = sorted[i];
-                    final otherId = chat.participants.firstWhere((id) => id != _currentUserId);
-                    final otherName = chat.participantsName?[otherId] ?? 'Unknown';
-
-                    return ChatListTile(
-                      chat: chat,
-                      currentUserId: _currentUserId,
-                      onTap: () {
-                        getIt<AppRouter>().push(
-                          ChatMessageScreen(
-                            receiverId: otherId,
-                            receiverName: otherName,
-                          ),
-                        );
-                      },
-                    );
-                  },
-                );
+              onChanged: (v) {
+                setState(() => _search = v.trim());
+                _searchUsers(v.trim());
               },
             ),
           ),
+
+          if (_isSearching)
+            const Center(child: CircularProgressIndicator())
+          else if (_searchResults.isNotEmpty)
+            Expanded(
+              child: ListView.builder(
+                itemCount: _searchResults.length,
+                itemBuilder: (context, index) {
+                  final user = _searchResults[index];
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
+                      child: Text(user.fullName[0].toUpperCase()),
+                    ),
+                    title: Text(user.fullName),
+                    subtitle: Text(user.username),
+                    onTap: () async {
+                      // Create or get existing chat room
+                      final chatRoom = await _chatRepository.getOrCreateChatRoom(
+                        _currentUserId,
+                        user.uid,
+                      );
+                      
+                      // Navigate to chat screen
+                      if (!mounted) return;
+                      getIt<AppRouter>().push(
+                        ChatMessageScreen(
+                          receiverId: user.uid,
+                          receiverName: user.fullName,
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            )
+          else if (_search.isNotEmpty && _searchResults.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text('No users found'),
+            )
+          else
+            //chat Rooms List
+            Expanded(
+              child: StreamBuilder<List<ChatRoomModel>>(
+                stream: _chatRepository.getChatRooms(_currentUserId),
+                builder: (context, snap) {
+                  if (snap.hasError) return Center(child: Text("Error: ${snap.error}"));
+                  if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+
+                  // Apply filter and sort
+                  final filtered = snap.data!.where(_passesReadFilter).toList();
+                  final sorted = _applySort(filtered);
+
+                  if (sorted.isEmpty) {
+                    return const Center(
+                      child: Text('No recent chats'),
+                    );
+                  }
+
+                  return ListView.builder(
+                    itemCount: sorted.length,
+                    itemBuilder: (context, i) {
+                      final chat = sorted[i];
+                      final otherId = chat.participants.firstWhere((id) => id != _currentUserId);
+                      final otherName = chat.participantsName?[otherId] ?? 'Unknown';
+
+                      return ChatListTile(
+                        chat: chat,
+                        currentUserId: _currentUserId,
+                        onTap: () {
+                          getIt<AppRouter>().push(
+                            ChatMessageScreen(
+                              receiverId: otherId,
+                              receiverName: otherName,
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
         ],
       ),
 
       //fitler and sort buttons
-      bottomNavigationBar: Padding(
+      bottomNavigationBar: Container(
         padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 24.0),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            ElevatedButton.icon(
-              onPressed: _showFilterOptions,
-              icon: const Icon(Icons.filter_list),
-              label: const Text('Filter'),
-            ),
-            const SizedBox(width: 16),
-            ElevatedButton.icon(
-              onPressed: _showSortOptions,
-              icon: const Icon(Icons.sort),
-              label: const Text('Sort'),
-            ),
-          ],
+        child: Container(
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFF1A1B1E),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _showFilterOptions,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    shape: const RoundedRectangleBorder(
+                      borderRadius: BorderRadius.horizontal(left: Radius.circular(20)),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.filter_list, color: Colors.white, size: 20),
+                      SizedBox(width: 4),
+                      Text(
+                        'Filter',
+                        style: TextStyle(color: Colors.white, fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 20,
+                color: Colors.grey[800],
+              ),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _showSortOptions,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    shape: const RoundedRectangleBorder(
+                      borderRadius: BorderRadius.horizontal(right: Radius.circular(20)),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.sort, color: Colors.white, size: 20),
+                      SizedBox(width: 4),
+                      Text(
+                        'Sort',
+                        style: TextStyle(color: Colors.white, fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
 
