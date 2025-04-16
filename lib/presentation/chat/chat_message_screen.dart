@@ -805,89 +805,11 @@ class MessageBubble extends StatelessWidget {
     required this.onReply,
   });
 
-  OverlayEntry? _emojiOverlayEntry;
-
-  void _showReactions(BuildContext context, VoidCallback onCloseAll) {
-    final reactions = ['❤️', '😂', '😮', '😢', '👍', '👎'];
-    final size = MediaQuery.of(context).size;
-
-    final RenderBox renderBox =
-        _key.currentContext!.findRenderObject() as RenderBox;
-    final Size bubbleSize = renderBox.size;
-    final Offset bubblePosition = renderBox.localToGlobal(Offset.zero);
-
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final double reactionsListWidth = size.width * 0.60;
-    final double bubbleCenterX = bubblePosition.dx + bubbleSize.width / 2;
-    final double x = (bubbleCenterX - reactionsListWidth / 2)
-        .clamp(0.0, screenWidth - reactionsListWidth);
-    final double y = bubblePosition.dy - 45;
-
-    _emojiOverlayEntry = OverlayEntry(
-      builder: (context) => GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onTap: onCloseAll,
-        child: Stack(
-          children: [
-            Positioned(
-              left: x,
-              top: y,
-              width: reactionsListWidth,
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: <BoxShadow>[
-                      BoxShadow(
-                        offset: Offset(0.0, 0.0),
-                        blurRadius: 8,
-                        color: Color.fromARGB(150, 0, 0, 0),
-                      ),
-                    ],
-                  ),
-                  padding: EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: reactions.map((emoji) {
-                      return GestureDetector(
-                        onTap: () {
-                          chatCubit.addReaction(
-                            messageId: message.id,
-                            emoji: emoji,
-                          );
-                          onCloseAll();
-                        },
-                        child: Text(
-                          emoji,
-                          style: TextStyle(fontSize: size.height * 0.025),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-    Overlay.of(context)!.insert(_emojiOverlayEntry!);
-  }
-
-  void _showReactionsAndOptions(BuildContext context) {
-    void closeAll() => _closeAllOverlays(context);
-    _showReactions(context, closeAll);
-    _showOptions(context, closeAll);
-  }
-
   @override
   Widget build(BuildContext context) {
     Widget contentWidget;
-    final isMe = message.senderId == chatCubit.currentUserId;
 
-//handle deleted placeholder
+    //handle deleted placeholder
     if (message.type == MessageType.deleted) {
       return Align(
         alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -912,6 +834,7 @@ class MessageBubble extends StatelessWidget {
         ),
       );
     }
+
     switch (message.type) {
       case MessageType.image:
         contentWidget = GestureDetector(
@@ -1006,7 +929,7 @@ class MessageBubble extends StatelessWidget {
           style: TextStyle(color: Colors.black),
         );
     }
-    final size = MediaQuery.of(context).size;
+
     return GestureDetector(
       key: _key,
       onLongPress: () => _showReactionsAndOptions(context),
@@ -1136,81 +1059,210 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  // hold message functionality
-  void _showOptions(BuildContext rootContext, VoidCallback onCloseAll) {
-    final isText = message.type == MessageType.text;
+  void _showReactionsAndOptions(BuildContext context) {
+    final reactions = ['❤️', '😂', '😮', '😢', '👍', '👎'];
+    final size = MediaQuery.of(context).size;
 
-    showModalBottomSheet(
-      context: rootContext,
-      builder: (sheetContext) => SafeArea(
-        child: Wrap(
-          children: [
-            if (isText)
-              ListTile(
-                leading: const Icon(Icons.copy),
-                title: const Text('Copy'),
-                onTap: () {
-                  Clipboard.setData(ClipboardData(text: message.content));
-                  Navigator.of(sheetContext).pop();
-                  onCloseAll();
-                  ScaffoldMessenger.of(rootContext).showSnackBar(
-                    SnackBar(content: Text('Message copied')),
-                  );
-                },
-              ),
-            ListTile(
-                leading: const Icon(Icons.reply),
-                title: const Text('Reply'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  onCloseAll();
-                  onReply(message);
-                }),
-            if (isMe && isText)
-              ListTile(
-                leading: const Icon(Icons.edit),
-                title: const Text('Edit'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  onCloseAll();
-                  _showEditDialog(rootContext);
-                },
-              ),
-            ListTile(
-              leading: const Icon(Icons.emoji_emotions),
-              title: const Text('React'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                onCloseAll();
-                // Optionally, you can re-show the emoji picker here if you want
-              },
+    // Get the position of the message bubble
+    final RenderBox renderBox = _key.currentContext!.findRenderObject() as RenderBox;
+    final Size bubbleSize = renderBox.size;
+    final Offset bubblePosition = renderBox.localToGlobal(Offset.zero);
+
+    // Calculate position for reactions overlay
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final double reactionsListWidth = size.width * 0.60;
+    final double bubbleCenterX = bubblePosition.dx + bubbleSize.width / 2;
+    final double x = (bubbleCenterX - reactionsListWidth / 2)
+        .clamp(0.0, screenWidth - reactionsListWidth);
+    final double y = bubblePosition.dy - 45;
+
+    late final OverlayEntry overlay;
+    
+    void removeOverlay() {
+      if (overlay.mounted) {
+        overlay.remove();
+      }
+    }
+
+    // Define the overlay
+    overlay = OverlayEntry(
+      builder: (overlayContext) => Stack(
+        children: [
+          // Transparent full-screen GestureDetector to handle taps outside
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTapDown: (_) => removeOverlay(),
             ),
-            if (isMe)
-              ListTile(
-                leading: const Icon(Icons.delete_forever, color: Colors.red),
-                title:
-                    const Text('Unsend', style: TextStyle(color: Colors.red)),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  onCloseAll();
-                  chatCubit.deleteMessage(message.id);
-                },
+          ),
+          // Reactions menu
+          Positioned(
+            left: x,
+            top: y,
+            width: reactionsListWidth,
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      offset: Offset(0.0, 0.0),
+                      blurRadius: 8,
+                      color: Color.fromARGB(150, 0, 0, 0),
+                    ),
+                  ],
+                ),
+                padding: EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: reactions.asMap().entries.map((entry) {
+                    final emoji = entry.value;
+                    return TweenAnimationBuilder<double>(
+                      duration: Duration(milliseconds: 200),
+                      curve: Curves.easeOutBack,
+                      tween: Tween(begin: 0.0, end: 1.0),
+                      builder: (context, value, child) {
+                        return Transform.scale(
+                          scale: value,
+                          child: Transform.translate(
+                            offset: Offset(0, (1 - value) * -20),
+                            child: GestureDetector(
+                              onTap: () {
+                                chatCubit.addReaction(
+                                  messageId: message.id,
+                                  emoji: emoji,
+                                );
+                                removeOverlay();
+                              },
+                              child: Text(
+                                emoji,
+                                style: TextStyle(
+                                  fontSize: size.height * 0.025,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  }).toList(),
+                ),
               ),
-            ListTile(
-              leading: const Icon(Icons.close),
-              title: const Text('Cancel'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                onCloseAll();
-              },
             ),
-          ],
-        ),
+          ),
+        ],
       ),
+    );
+
+    // Show both reactions overlay and options bottom sheet
+    Overlay.of(context).insert(overlay);
+
+    // Show options bottom sheet
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (bottomSheetContext) {
+        final isText = message.type == MessageType.text;
+        final isMe = message.senderId == chatCubit.currentUserId;
+
+        return SafeArea(
+          child: Wrap(
+            children: [
+              if (isText)
+                _buildAnimatedOption(
+                  icon: Icons.copy,
+                  title: 'Copy',
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: message.content));
+                    removeOverlay();
+                    Navigator.pop(bottomSheetContext);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Message copied')),
+                    );
+                  },
+                ),
+              _buildAnimatedOption(
+                icon: Icons.reply,
+                title: 'Reply',
+                onTap: () {
+                  removeOverlay();
+                  Navigator.pop(bottomSheetContext);
+                  onReply(message);
+                },
+              ),
+              if (isMe && isText)
+                _buildAnimatedOption(
+                  icon: Icons.edit,
+                  title: 'Edit',
+                  onTap: () {
+                    removeOverlay();
+                    Navigator.pop(bottomSheetContext);
+                    _showEditDialog(context);
+                  },
+                ),
+              if (isMe)
+                _buildAnimatedOption(
+                  icon: Icons.delete_forever,
+                  title: 'Unsend',
+                  isDestructive: true,
+                  onTap: () {
+                    removeOverlay();
+                    Navigator.pop(bottomSheetContext);
+                    chatCubit.deleteMessage(message.id);
+                  },
+                ),
+              _buildAnimatedOption(
+                icon: Icons.close,
+                title: 'Cancel',
+                onTap: () {
+                  removeOverlay();
+                  Navigator.pop(bottomSheetContext);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    ).then((_) => removeOverlay());
+  }
+
+  Widget _buildAnimatedOption({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    bool isDestructive = false,
+  }) {
+    return TweenAnimationBuilder<double>(
+      duration: Duration(milliseconds: 200),
+      curve: Curves.easeOutBack,
+      tween: Tween(begin: 0.0, end: 1.0),
+      builder: (context, value, child) {
+        return Transform.translate(
+          offset: Offset(0, (1 - value) * 20),
+          child: ListTile(
+            leading: Icon(
+              icon,
+              color: isDestructive ? Colors.red : null,
+            ),
+            title: Text(
+              title,
+              style: TextStyle(
+                color: isDestructive ? Colors.red : null,
+              ),
+            ),
+            onTap: onTap,
+          ),
+        );
+      },
     );
   }
 
-// edit message
+  // edit message
   void _showEditDialog(BuildContext context) {
     final controller = TextEditingController(text: message.content);
     showDialog(
@@ -1243,13 +1295,6 @@ class MessageBubble extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  void _closeAllOverlays(BuildContext context) {
-    if (_emojiOverlayEntry != null) {
-      _emojiOverlayEntry!.remove();
-      _emojiOverlayEntry = null;
-    }
   }
 }
 
