@@ -1114,57 +1114,72 @@ class MessageBubble extends StatelessWidget {
     final Size bubbleSize = renderBox.size;
     final Offset bubblePosition = renderBox.localToGlobal(Offset.zero);
 
-    // Calculate position for reactions overlay
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final double reactionsListWidth = size.width * 0.60;
-    final double bubbleCenterX = bubblePosition.dx + bubbleSize.width / 2;
-    final double x = (bubbleCenterX - reactionsListWidth / 2)
-        .clamp(0.0, screenWidth - reactionsListWidth);
-    final double y = bubblePosition.dy - 45;
+    // Calculate the target position (center of screen)
+    final double targetY = (size.height - bubbleSize.height) / 2;
+    final double moveDistance = targetY - bubblePosition.dy;
 
-    late final OverlayEntry overlay;
+    // Create an overlay entry for the animated message and reactions
+    late OverlayEntry messageOverlay;
     
     void removeOverlay() {
-      if (overlay.mounted) {
-        overlay.remove();
+      if (messageOverlay.mounted) {
+        messageOverlay.remove();
       }
     }
 
-    // Define the overlay
-    overlay = OverlayEntry(
+    messageOverlay = OverlayEntry(
       builder: (overlayContext) => Stack(
         children: [
-          // Transparent full-screen GestureDetector to handle taps outside
+          // Darkened background
           Positioned.fill(
             child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
               onTapDown: (_) => removeOverlay(),
+              child: Container(
+                color: Colors.black.withOpacity(0.4),
+              ),
             ),
           ),
+
+          // Animated message bubble
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            top: targetY,
+            child: Center(
+              child: Material(
+                color: Colors.transparent,
+                child: Center(
+                  child: Expanded(
+                    child: buildMessageContent(),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
           // Reactions menu
           Positioned(
-            left: x,
-            top: y,
-            width: reactionsListWidth,
+            top: targetY - 60, // Position above the message
+            left: (size.width - (size.width * 0.60)) / 2, // Center horizontally
             child: Material(
               color: Colors.transparent,
               child: Container(
+                width: size.width * 0.60,
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(30),
                   boxShadow: [
                     BoxShadow(
-                      offset: Offset(0.0, 0.0),
+                      offset: Offset(0, 2),
                       blurRadius: 8,
-                      color: Color.fromARGB(150, 0, 0, 0),
+                      color: Colors.black.withOpacity(0.2),
                     ),
                   ],
                 ),
                 padding: EdgeInsets.symmetric(vertical: 8, horizontal: 8),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: reactions.asMap().entries.map((entry) {
-                    final emoji = entry.value;
+                  children: reactions.map((emoji) {
                     return TweenAnimationBuilder<double>(
                       duration: Duration(milliseconds: 200),
                       curve: Curves.easeOutBack,
@@ -1172,21 +1187,19 @@ class MessageBubble extends StatelessWidget {
                       builder: (context, value, child) {
                         return Transform.scale(
                           scale: value,
-                          child: Transform.translate(
-                            offset: Offset(0, (1 - value) * -20),
-                            child: GestureDetector(
-                              onTap: () {
-                                chatCubit.addReaction(
-                                  messageId: message.id,
-                                  emoji: emoji,
-                                );
-                                removeOverlay();
-                              },
+                          child: GestureDetector(
+                            onTap: () {
+                              chatCubit.addReaction(
+                                messageId: message.id,
+                                emoji: emoji,
+                              );
+                              removeOverlay();
+                            },
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 4),
                               child: Text(
                                 emoji,
-                                style: TextStyle(
-                                  fontSize: size.height * 0.025,
-                                ),
+                                style: TextStyle(fontSize: 24),
                               ),
                             ),
                           ),
@@ -1202,8 +1215,8 @@ class MessageBubble extends StatelessWidget {
       ),
     );
 
-    // Show both reactions overlay and options bottom sheet
-    Overlay.of(context).insert(overlay);
+    // Insert the overlay
+    Overlay.of(context).insert(messageOverlay);
 
     // Show options bottom sheet
     showModalBottomSheet(
@@ -1277,34 +1290,60 @@ class MessageBubble extends StatelessWidget {
     ).then((_) => removeOverlay());
   }
 
-  Widget _buildAnimatedOption({
-    required IconData icon,
-    required String title,
-    required VoidCallback onTap,
-    bool isDestructive = false,
-  }) {
-    return TweenAnimationBuilder<double>(
-      duration: Duration(milliseconds: 200),
-      curve: Curves.easeOutBack,
-      tween: Tween(begin: 0.0, end: 1.0),
-      builder: (context, value, child) {
-        return Transform.translate(
-          offset: Offset(0, (1 - value) * 20),
-          child: ListTile(
-            leading: Icon(
-              icon,
-              color: isDestructive ? Colors.red : null,
-            ),
-            title: Text(
-              title,
-              style: TextStyle(
-                color: isDestructive ? Colors.red : null,
+  // Helper method to build the message content
+  Widget buildMessageContent() {
+    return Container(
+      margin: EdgeInsets.only(
+        left: isMe ? 64 : 8,
+        right: isMe ? 8 : 64,
+        bottom: 4,
+      ),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (message.replyToMessageId != null)
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 8, vertical: 4),
+              margin: const EdgeInsets.only(bottom: 4),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                _getReplyDisplayText(message),
+                style: TextStyle(
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey[600],
+                ),
               ),
             ),
-            onTap: onTap,
+          if (message.type == MessageType.text)
+            Text(message.content)
+          else if (message.type == MessageType.image)
+            Image.network(message.content, width: 200, height: 200, fit: BoxFit.cover)
+          else if (message.type == MessageType.video)
+            VideoBubble(url: message.content)
+          else if (message.type == MessageType.voice)
+            AudioBubble(url: message.content, isMe: isMe)
+          else
+            Text(message.content),
+          const SizedBox(height: 4),
+          Text(
+            DateFormat('h:mm a').format(message.timestamp.toDate()),
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[600],
+            ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 
@@ -1340,6 +1379,37 @@ class MessageBubble extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAnimatedOption({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    bool isDestructive = false,
+  }) {
+    return TweenAnimationBuilder<double>(
+      duration: Duration(milliseconds: 200),
+      curve: Curves.easeOutBack,
+      tween: Tween(begin: 0.0, end: 1.0),
+      builder: (context, value, child) {
+        return Transform.translate(
+          offset: Offset(0, (1 - value) * 20),
+          child: ListTile(
+            leading: Icon(
+              icon,
+              color: isDestructive ? Colors.red : null,
+            ),
+            title: Text(
+              title,
+              style: TextStyle(
+                color: isDestructive ? Colors.red : null,
+              ),
+            ),
+            onTap: onTap,
+          ),
+        );
+      },
     );
   }
 }
