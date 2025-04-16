@@ -226,7 +226,7 @@ class ChatRepository extends BaseRepository {
         .get();
 
     if (snap.docs.isEmpty) {
-      // no messages at all (shouldn’t really happen), just clear
+      // no messages at all (shouldn't really happen), just clear
       await roomRef.update({
         'lastMessage': '',
         'lastMessageSenderId': null,
@@ -361,7 +361,7 @@ class ChatRepository extends BaseRepository {
     });
   }
 
-  /// Update a message’s text
+  /// Update a message's text
   Future<void> editMessage({
     required String chatRoomId,
     required String messageId,

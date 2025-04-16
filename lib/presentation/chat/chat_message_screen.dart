@@ -429,33 +429,37 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
                   itemBuilder: (context, index) {
                     final message = state.messages[index];
                     final isMe = message.senderId == _chatCubit.currentUserId;
-                    return Dismissible(
-                      key: Key(message.id),
-                      direction: DismissDirection.startToEnd,
-                      background: Container(
-                        color: Colors.grey.shade200,
-                        alignment: Alignment.centerLeft,
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: const Icon(Icons.reply, color: Colors.grey),
-                      ),
-                      confirmDismiss: (dir) async {
-                        setState(() => _replyingTo = message);
-                        return false;
-                      },
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          MessageBubble(
-                            message: message,
-                            isMe: isMe,
-                            chatCubit: _chatCubit,
-                            onReply: (msg) => setState(() => _replyingTo = msg),
-                          ),
-                          if (message.reactions.isNotEmpty)
-                            const SizedBox(height: 20),
-                        ],
-                      ),
+                    Widget messageWidget = Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        MessageBubble(
+                          message: message,
+                          isMe: isMe,
+                          chatCubit: _chatCubit,
+                          onReply: (msg) => setState(() => _replyingTo = msg),
+                        ),
+                        if (message.reactions.isNotEmpty)
+                          const SizedBox(height: 20),
+                      ],
                     );
+
+                    return message.type == MessageType.deleted
+                      ? messageWidget
+                      : Dismissible(
+                          key: Key(message.id),
+                          direction: DismissDirection.startToEnd,
+                          background: Container(
+                            color: Colors.grey.shade200,
+                            alignment: Alignment.centerLeft,
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            child: const Icon(Icons.reply, color: Colors.grey),
+                          ),
+                          confirmDismiss: (dir) async {
+                            setState(() => _replyingTo = message);
+                            return false;
+                          },
+                          child: messageWidget,
+                        );
                   },
                 ),
               ),
@@ -476,7 +480,7 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
                             children: [
                               Expanded(
                                 child: Text(
-                                  'Replying to: ${_replyingTo!.content}',
+                                  _getReplyDisplayText(_replyingTo!),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
@@ -788,22 +792,64 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
 
   // for taking videos
   Future<void> _handleCameraVideo() async {}
+
+  String _getReplyDisplayText(ChatMessage message) {
+    String prefix = 'Replying to: ';
+    switch (message.type) {
+      case MessageType.image:
+        return '${prefix}📷 Image';
+      case MessageType.video:
+        return '${prefix}🎥 Video';
+      case MessageType.voice:
+        return '${prefix}🎤 Voice Message';
+      case MessageType.document:
+        return '${prefix}📄 Document';
+      case MessageType.mediaCollection:
+        return '${prefix}🖼️ Media Collection';
+      case MessageType.deleted:
+        return '${prefix}Deleted message';
+      case MessageType.text:
+      default:
+        return prefix + message.content;
+    }
+  }
 }
 
 class MessageBubble extends StatelessWidget {
   final ChatMessage message;
   final bool isMe;
   final ChatCubit chatCubit;
-  final void Function(ChatMessage) onReply;
+  final Function(ChatMessage) onReply;
   final GlobalKey _key = GlobalKey();
 
   MessageBubble({
-    super.key,
+    Key? key,
     required this.message,
     required this.isMe,
     required this.chatCubit,
     required this.onReply,
-  });
+  }) : super(key: key);
+
+  String _getReplyDisplayText(ChatMessage message) {
+    String prefix = 'Replying to: ';
+    switch (message.type) {
+      case MessageType.image:
+        return '${prefix}📷 Image';
+      case MessageType.video:
+        return '${prefix}🎥 Video';
+      case MessageType.voice:
+        return '${prefix}🎤 Voice Message';
+      case MessageType.document:
+        return '${prefix}📄 Document';
+      case MessageType.mediaCollection:
+        return '${prefix}🖼️ Media Collection';
+      case MessageType.deleted:
+        return '${prefix}Deleted message';
+      case MessageType.text:
+      default:
+        return prefix + message.content;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -964,7 +1010,7 @@ class MessageBubble extends StatelessWidget {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          message.replyToContent ?? '',
+                          _getReplyDisplayText(message),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
