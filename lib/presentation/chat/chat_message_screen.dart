@@ -1,4 +1,5 @@
 // lib/presentaion/chat/chat_message_screen.dart
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
@@ -177,7 +178,9 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
     final status = await Permission.microphone.request();
     if (status != PermissionStatus.granted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Microphone permission is required for voice messages')),
+        const SnackBar(
+            content:
+                Text('Microphone permission is required for voice messages')),
       );
       return;
     }
@@ -215,8 +218,9 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
         if (path != null) {
           final file = File(path);
           final fileName = const Uuid().v4();
-          final ref =
-              FirebaseStorage.instance.ref().child('voiceMessages/$fileName.m4a');
+          final ref = FirebaseStorage.instance
+              .ref()
+              .child('voiceMessages/$fileName.m4a');
           final uploadTask = await ref.putFile(file);
           final downloadUrl = await uploadTask.ref.getDownloadURL();
 
@@ -444,22 +448,24 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
                     );
 
                     return message.type == MessageType.deleted
-                      ? messageWidget
-                      : Dismissible(
-                          key: Key(message.id),
-                          direction: DismissDirection.startToEnd,
-                          background: Container(
-                            color: Colors.grey.shade200,
-                            alignment: Alignment.centerLeft,
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            child: const Icon(Icons.reply, color: Colors.grey),
-                          ),
-                          confirmDismiss: (dir) async {
-                            setState(() => _replyingTo = message);
-                            return false;
-                          },
-                          child: messageWidget,
-                        );
+                        ? messageWidget
+                        : Dismissible(
+                            key: Key(message.id),
+                            direction: DismissDirection.startToEnd,
+                            background: Container(
+                              color: Colors.grey.shade200,
+                              alignment: Alignment.centerLeft,
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 20),
+                              child:
+                                  const Icon(Icons.reply, color: Colors.grey),
+                            ),
+                            confirmDismiss: (dir) async {
+                              setState(() => _replyingTo = message);
+                              return false;
+                            },
+                            child: messageWidget,
+                          );
                   },
                 ),
               ),
@@ -562,7 +568,9 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
                               child: Container(
                                 padding: EdgeInsets.all(size.height * 0.02),
                                 decoration: BoxDecoration(
-                                  color: _isRecording ? Colors.red : Theme.of(context).primaryColor,
+                                  color: _isRecording
+                                      ? Colors.red
+                                      : Theme.of(context).primaryColor,
                                   shape: BoxShape.circle,
                                 ),
                                 child: Icon(
@@ -791,8 +799,157 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
   }
 
   // for taking videos
-  Future<void> _handleCameraVideo() async {}
+  Future<void> _handleCameraVideo() async {
+    try {
+      // Check permissions first
+      final cameraStatus = await Permission.camera.status;
+      final micStatus = await Permission.microphone.status;
 
+      if (!cameraStatus.isGranted || !micStatus.isGranted) {
+        final results = await [
+          Permission.camera,
+          Permission.microphone,
+        ].request();
+
+        if (results[Permission.camera] != PermissionStatus.granted ||
+            results[Permission.microphone] != PermissionStatus.granted) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Camera & microphone permissions required')),
+          );
+          return;
+        }
+      }
+
+      // Initialize ImagePicker with explicit camera control
+      final picker = ImagePicker();
+      XFile? videoFile;
+
+      try {
+        videoFile = await picker
+            .pickVideo(
+          source: ImageSource.camera,
+          preferredCameraDevice: CameraDevice.rear,
+          maxDuration: const Duration(minutes: 2),
+        )
+            .timeout(const Duration(seconds: 30), onTimeout: () {
+          throw TimeoutException('Camera took too long to respond');
+        });
+      } catch (e) {
+        debugPrint('Camera error: $e');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Camera error: ${e.toString()}')),
+        );
+        return;
+      }
+
+      if (videoFile == null) {
+        debugPrint('User explicitly canceled recording');
+        return;
+      }
+
+      // Show processing dialog with cancellation option
+      bool uploadCancelled = false;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => WillPopScope(
+          onWillPop: () async {
+            uploadCancelled = true;
+            return true;
+          },
+          child: AlertDialog(
+            title: const Text('Processing Video'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  child: const Text('Cancel Upload'),
+                  onPressed: () {
+                    uploadCancelled = true;
+                    Navigator.pop(context);
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      try {
+        // Verify file integrity
+        final file = File(videoFile.path);
+        final fileSize = await file.length();
+        debugPrint('Video file size: ${fileSize / 1024} KB');
+
+        if (fileSize < 1024) {
+          throw Exception('Invalid video file (too small)');
+        }
+
+        // Upload and send
+        final fileName = '${DateTime.now().millisecondsSinceEpoch}.mp4';
+        final ref =
+            FirebaseStorage.instance.ref().child('chatVideos/$fileName');
+
+        final uploadTask = ref.putFile(
+          file,
+          SettableMetadata(
+            contentType: 'video/mp4',
+            cacheControl: 'public, max-age=31536000',
+          ),
+        );
+
+        // Monitor upload progress
+        uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
+          debugPrint(
+              'Upload progress: ${snapshot.bytesTransferred}/${snapshot.totalBytes}');
+        });
+
+        // Wait for upload completion
+        await uploadTask.whenComplete(() {
+          if (uploadCancelled) {
+            debugPrint('User cancelled upload');
+            uploadTask.snapshot.ref.delete(); // Cleanup cancelled upload
+          }
+        });
+
+        if (uploadCancelled) {
+          if (!mounted) return;
+          Navigator.pop(context);
+          return;
+        }
+
+        final downloadUrl = await ref.getDownloadURL();
+
+        if (!mounted) return;
+        await _chatCubit.sendMessage(
+          content: downloadUrl,
+          receiverId: widget.receiverId,
+          type: MessageType.video,
+        );
+
+        Navigator.pop(context); // Close processing dialog
+      } catch (e) {
+        debugPrint('Upload error: $e');
+        if (!mounted) return;
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send video: ${e.toString()}')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Global error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Video error: ${e.toString()}')),
+      );
+    }
+  }
+
+  // for getting reply type of content displayed in the message bubble
   String _getReplyDisplayText(ChatMessage message) {
     String prefix = 'Replying to: ';
     switch (message.type) {
@@ -806,8 +963,6 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
         return '${prefix}📄 Document';
       case MessageType.mediaCollection:
         return '${prefix}🖼️ Media Collection';
-      case MessageType.deleted:
-        return '${prefix}Deleted message';
       case MessageType.text:
       default:
         return prefix + message.content;
@@ -1110,7 +1265,8 @@ class MessageBubble extends StatelessWidget {
     final size = MediaQuery.of(context).size;
 
     // Get the position of the message bubble
-    final RenderBox renderBox = _key.currentContext!.findRenderObject() as RenderBox;
+    final RenderBox renderBox =
+        _key.currentContext!.findRenderObject() as RenderBox;
     final Size bubbleSize = renderBox.size;
     final Offset bubblePosition = renderBox.localToGlobal(Offset.zero);
 
@@ -1120,7 +1276,7 @@ class MessageBubble extends StatelessWidget {
 
     // Create an overlay entry for the animated message and reactions
     late OverlayEntry messageOverlay;
-    
+
     void removeOverlay() {
       if (messageOverlay.mounted) {
         messageOverlay.remove();
@@ -1304,13 +1460,13 @@ class MessageBubble extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
-        crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment:
+            isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           if (message.replyToMessageId != null)
             Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               margin: const EdgeInsets.only(bottom: 4),
               decoration: BoxDecoration(
                 color: Colors.grey.shade300,
@@ -1327,7 +1483,8 @@ class MessageBubble extends StatelessWidget {
           if (message.type == MessageType.text)
             Text(message.content)
           else if (message.type == MessageType.image)
-            Image.network(message.content, width: 200, height: 200, fit: BoxFit.cover)
+            Image.network(message.content,
+                width: 200, height: 200, fit: BoxFit.cover)
           else if (message.type == MessageType.video)
             VideoBubble(url: message.content)
           else if (message.type == MessageType.voice)
