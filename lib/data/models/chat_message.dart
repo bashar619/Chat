@@ -11,6 +11,7 @@ class ChatMessage {
   final String senderId;
   final String receiverId;
   final String content;
+  final String? originalContent;
   final MessageType type;
   final MessageStatus status;
   final Timestamp timestamp;
@@ -27,6 +28,7 @@ class ChatMessage {
     required this.senderId,
     required this.receiverId,
     required this.content,
+    this.originalContent,
     this.type = MessageType.text,
     this.status = MessageStatus.sent,
     required this.timestamp,
@@ -47,6 +49,7 @@ class ChatMessage {
       senderId: data['senderId'] as String,
       receiverId: data['receiverId'] as String,
       content: data['content'] as String,
+      originalContent: data['originalContent'] as String?,
       reactions: Map<String, int>.from(data['reactions'] ?? {}),
       userReactions: Map<String, String>.from(data['userReactions'] ?? {}),
       // parse replyTo if present
@@ -76,6 +79,7 @@ class ChatMessage {
       "senderId": senderId,
       "receiverId": receiverId,
       "content": content,
+      "originalContent": originalContent,
       "type": type.toString().split('.').last,
       "status": status.toString(),
       "timestamp": timestamp,
@@ -100,6 +104,7 @@ class ChatMessage {
     String? senderId,
     String? receiverId,
     String? content,
+    String? originalContent,
     MessageType? type,
     MessageStatus? status,
     Timestamp? timestamp,
@@ -115,6 +120,7 @@ class ChatMessage {
       senderId: senderId ?? this.senderId,
       receiverId: receiverId ?? this.receiverId,
       content: content ?? this.content,
+      originalContent: originalContent ?? this.originalContent,
       type: type ?? this.type,
       status: status ?? this.status,
       timestamp: timestamp ?? this.timestamp,

@@ -211,9 +211,15 @@ class ChatRepository extends BaseRepository {
     final roomRef = _chatRooms.doc(chatRoomId);
     final msgRef = getChatRoomMessages(chatRoomId).doc(messageId);
 
-    // 1) mark the target message as deleted
+    // First get the original message content
+    final msgDoc = await msgRef.get();
+    final msgData = msgDoc.data() as Map<String, dynamic>;
+    final originalContent = msgData['content'] as String;
+
+    // Mark the target message as deleted while preserving original content
     await msgRef.update({
       'content': 'A message has been deleted',
+      'originalContent': originalContent, // Store the original content
       'type': MessageType.deleted.toString().split('.').last,
       'reactions': {},
       'userReactions': {},
