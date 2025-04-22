@@ -1,0 +1,172 @@
+#ENGLISH WORDS
+banned_words = [
+    # General Profanity
+
+    "fuck", "fucks", "fucked", "fucking", "motherfucker", "motherfucking", "fuxk", "fuq", "fawk",
+    "shit", "shits", "shitted", "shitting", "shite", "shitter", "bullshit", "shiit", "shat",
+    "bitch", "bitches", "biatch", "b1tch", "btch", "betch", "bish", 
+    "ass", "asses", "asshole", "assholes", "arse", "arsehole",
+    "dick", "dicks", "dickhead", "dickheads",
+    "cock", "cocks", "cockhead", "cockface",
+    "piss", "pissed", "pissing", "pissoff",
+    "damn", "damnit", "goddamn", "dammit",
+    "crap", "crappy", "bastard", "bastards",
+    "wanker", "twat", "bugger", "tosser", "bollocks",
+    "douche", "douchebag", "douchebags", "prick", "nutjob", "jackass",
+
+    # Sexually Explicit
+
+    "cum", "cumming", "cumshot", "splooge", "jizz", "blowjob", "handjob",
+    "fap", "fapping", "deepthroat", "fingerfuck", "rimjob",
+    "porn", "porno", "pornhub", "hardcore", "softcore", "pussy", "tits",
+    "boobs", "boobies", "nipples", "clit", "clitoris", "penis", "vagina",
+    "anal", "oral", "fetish", "horny", "kinky", "suck", "sucking",
+    "send nudes", "show tits", "show boobs", "let’s have sex",
+    "wanna fuck", "wanna bang", "i’ll rape you", "you like it rough",
+    "slutty", "horny bitch", "daddy kink", "suck my dick", "you twink", 
+
+
+    # Hate Speech & Slurs (ethnic, gender, religion)
+
+    "nigger", "nigga", "chink", "gook", "spic", "kike", "jap",
+    "wetback", "sandnigger", "raghead", "towelhead", "beaner", "gyppo",
+    "dyke", "fag", "faggot", "homo", "queer", "lesbo", "shemale",
+    "retard", "retarded", "spaz", "mongoloid",
+    "heathen", "infidel", "kafir", "jesusfreak", "biblethumper", "islamist",
+    
+
+    # Bullying / Insults
+
+    "fatass", "lardass", "dumbo", "loser", "social reject",
+    "ugly", "mutant", "idiot", "dumb", "stupid", "moron", "noob", "scrub",
+    "freak", "nerd", "geek", "incel", "simp", "virgin", "weirdo",
+    "psycho", "mental", "pathetic", "basic bitch", "trash", "ratchet", "thot", "hoe", 
+    "brokeass", 
+
+
+    # Violence & Threats
+
+    "kill yourself", "kys", "die", "stab", "shoot", "blow up", "bomb you",
+    "slit throat", "hang yourself", "jump off", "strangle", "murder", "rape",
+    "rapist", "molest", "pedophile", "pedo", "predator", "pervert",
+
+    # Drugs & Substances
+
+    "weed", "hash", "dope", "bong", "cannabis",
+    "cocaine", "crack", "heroin", "lsd", "ecstasy", "mdma",
+    "shrooms", "magic mushrooms", "mushies", "get high", "spliff", "blunt",
+    "molly", "puff puff",  "zaza", "maryjane", 
+
+    # Other drug slangs
+
+    "get lit", "get stoned", "high af", "wasted", "zooted",
+    "trippy", "off a bean", "fried", "faded", "baked",
+    "blasted", "on a good one", "rollin hard", "tweaker", "tweaking",
+    "tripping", "trip balls", "snort", "snort coke", "popped a molly", "off the x",
+    "blow line", "crackhead", "do a line", "take a hit", "hit the bong"
+
+
+    # Leetspeak / Variants / Misspellings
+
+    "f@ck", "fuk", "fukk", "fck", "sh1t", "sht", "shet", "bi7ch", "b!tch",
+    "a55", "azz", "d1ck", "d!ck", "p0rn", "s3x", "cumz", "p00p", "wtf",
+    "suckz", "fuks", "fucc", "fuq", "sux", "stfu", "omfg", "lmao", "lmfao",
+
+    # Self-Harm Phrases (flag for safety)
+
+    "cut myself", "want to die", "end my life", "hate myself", "suicidal",
+    "i want to kill myself", "nobody loves me", "life sucks", "i'm worthless",
+
+
+    # ———————————————— Leetspeak & Fuzzy Patterns ————————————————
+    r"f[u\*]+c[k\*]+",      # fuck, f*ck, fuuuck
+    r"s[h\*]+i[t\*]+",      # shit, sh!t, sh1t
+    r"b[i\*]+t[c\*]+h",     # bitch, b!tch
+    r"a[s\*]+s[h\*]+o[l\*]+e", # asshole, a$$hole
+    r"d[u\*]+m[b\*]+a[s\*]+s[s\*]?", # dumbass
+    
+    # ———————————————— Word‑Boundary Safety ————————————————
+    r"\bass\b",            # standalone “ass”
+    r"\bdamn\b",
+]
+
+#ARABIC WORDS
+banned_arabic_words += [
+
+#sexual and compound profanity
+
+"قواد", "معرص", "منيوك", "مخنث", "مفعول به", "مقحبة", "نكتك", "أفشخك", "أنكحك", "أمصك", "كس خالتك", "كس عمتك", "نيك خالتك", "نيك عمتك",
+ "ابنك نيك", "أبوك نيك", "أبوك مفعول", "أمك نياكة", "كس بنتك", "نيك بنتك", "عرضك للبيع", "عرضك نازل", "عرضك منيوك", "فرج أمك", "طيز أمك", "طيزك",
+
+#Sectarian/ethnic slurs (very offensive)
+
+"عبد", "عبدة", "مواخير", "زنجي", "كلب شيعي", "كلب سني", "مسلم وسخ", "مسيحي كافر", "نصراني متخلف", "كافر ابن كافر", "كافر ", "مليشياوي", "مجوسي", "داعشي", "طالباني",
+ "وهابي", "روافض", "نواصب", "خنزير شيعي", "خنزير سني", "رافضي ابن قحبة", "شيعي ابن زنا", "مسيحي نجس", "كافر ابن شرموطة",
+
+#Insults targeting honor/shame
+
+"بلا شرف", "شرفك رخيص", "بلا كرامة", "ما عندك كرامة",
+ "كرامتك بالزبالة", "شرف أمك راح", "سمعتك وسخة", "سمعتك بالأرض", "كرامتك مداسة", "أنت وصمة عار", "فاضح حالك", "خليت شرفك رخيص",
+
+#Additional verbal aggression 
+
+"ناقص عقل", "معاق ذهنياً", "بهيمة تمشي", "يا قليل", "كلك غلط",   "أغبى مخلوق", "متخلف", "بلا فائدة", "إنت مش بني آدم", "والله ما تسوى" , "تكرم على الكلاب",
+
+#More drug/alcohol words (non-medical)
+
+"مخمور", "مضروب بالمخدرات", "يضرب هيروين", "يشم شمة", "يخبط بنزين", "مدمن سكر"
+ , "سهران عالزطلة", "شارب للصبح", "يقضيها سكر", "يضرب سيجارة حشيش", "تارك الدنيا ومكيف", "نصف ميت من المخدر", "ماكلها سطلة",
+
+#Self-harm / suicidal ideation (deep filter)
+
+"حاسس بالعدم", "نفسي أختفي", "نفسي مش موجود", "نفسيتي زفت", "كاره حالي", "نفسي أنام للأبد", "حياتي جحيم",
+ "قلبي مكسور",  "نفسي يخلص كل شي", "بتمنى الموت", "نفسيتي بالأرض", "كأبة قاتلة", "مش حاسس في شي", "بدي أهرب من الدنيا",
+
+#Full vulgar sentences to catch phrase-based abuse
+
+"لو فيك خير ما كنت هيك", "كنت أتمنى تموت", "والله تستاهل كل الي يصير فيك", "بدّي إمسح الأرض فيك", "حرام تعيش", "عيشتك زفت", "والله إنك قذر", "كل كلمة من تمك قرف",
+ "ما بتفهم غير بالضرب", "شكلك حثالة", "وجودك غلط", "إنت سبب كل المشاكل", "ليش ما تنتحر و تريحنا", "أنت وصمة عار لعيلتك" ]
+
+#FRANCO WORDS(arabish)
+banned_arabish_words = [
+
+#Sexual & Vulgar
+
+“ks”, "kos", "kosomak", "kos ommak", "koss ommak", "sharmota", "sharmoota",  "shrmota", "shrmoota", "sharmouta", 
+"7aywan", "7ayawan", "7awan", "7mareh", "zib", "zebb", "zibak", "zebby", "zoby", "zubb", "nikk", "niik", "neek", "nek", "enkaha", 
+"inkaha", "anakk", "naknik", "fsh5", "fesh5", "afshakhak", "btdkhol", "bdkhol", "fkher", "mfsh5", "btla7es", "btmasa7", "massa7", "ml7oos", "tkos", 
+"tkoss",  “zbr”, “3er”, “btm9”, “btaklo”, “byaklo”
+
+#Family-based Vulgarities
+
+"ibn kos", "ibn sharmoota", "bnt sharmoota", "bn sharmoota", "omak sharmoota", "akhtak sharmota", "kos okhtak", “kos 5awatk”, "kos akhtak", "zib okhtak", "zib ommak", 
+"kos 3elto", "kos el 3eela", "kos el 3eyla", "zeb omak", "7aywan el 3eela", "kos e5tak", "kos e5watek", "kos e7tak", "kos ammak", "kos 3amtek", "kos 5altak", "kos 3amok", 
+"kos el 3ar", "kos el sharaf", "entak min kos", "el 3eela el manekha", “3er f omk”, “3er f abok”, “3er f o5tk”, “zbr f omk”, “zbr f abok”, “zbr f o5tk”, “bl7s ks omk”, 
+“bl7s ks o5tk”, “kos om daftr el 3eleh”
+
+#Insults / Personal Attacks
+
+"3rs", "3ars", "3arseh", "3eress", "3irseh", "3irsak", "tays", "tayes", "behim", "bhim", "ba2ara", "ba2rah", "7eioan", "3abet", "3abit", "metwakir" , 
+"na2es", "taneekeh", "nakes", "sa2et", "khara", "kharah", "khra", "zift", "zafta", "mneek", "manaik", "mnayek",
+
+#Anger / Aggression / Violence
+
+"la a3mel fik wa7ad", "a2ta3 rasek", "amsa7 feek el ard", "3a2lak fel 7eet", "3aglak fel 7eet",  "btjeebli el sartan", "wajhak y2arref", 
+"batfe feek", "3la jethtek",  "tbo2 3alay",  "ra7 ed3asak", "ra7 ad3asak",  "etniak",
+
+#Drug/Alcohol (slang form)
+
+"hashish", "3ar2", "booz", "sakaran", "sakran", "mastool", "zay el mastool", "sharib",  "drank",  "sakta", "sharab", "sharba", "zotla", "shamma", 
+"smoking hash" , "blunt",   "3a ztltak", "sakarani",
+
+#Self-harm & Mental Attacks
+
+"bdya moot", "bdy amoot", "mish 7abeb a3ish", "mish taye2 7ali", "malish 2eema", "mash lazem", "balash a3eesh", "ana wa7ed 7aywan", "nafsi anam w ma as7a", 
+"kolo zift", "3aysh bala da3i",
+
+#Sectarian/Religious
+
+"kafir", "nasrani", "masee7i kafir", "shi3i kalb", "sunni kalb", "yahudi kalb", "yahoodi", "majusi", "rafidi", "rawafez", "khawarij", "5nzr", "islamic dog", 
+"muslim bitch", "msh rakbek deen", "deenak zift", "3aref rabak", "deenak tafeh", "allah yel3ank", "elah yel3anak", "allah yla3anak", "d3eet deen", “yl3n deenak”, 
+“yl3n rabak”, “yl3n denark”, “yl3n denarak”, “yl3n allah” , “allah yl3nk”,
+]

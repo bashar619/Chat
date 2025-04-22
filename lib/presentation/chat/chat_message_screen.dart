@@ -2,7 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:audioplayers/audioplayers.dart';
+import 'package:camera/camera.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,12 +12,11 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:uuid/uuid.dart';
-import 'package:video_player/video_player.dart';
 import 'package:youtube_messenger_app/data/models/chat_message.dart';
 import 'package:youtube_messenger_app/data/services/service_locator.dart';
 import 'package:youtube_messenger_app/logic/cubits/chat/chat_cubit.dart';
 import 'package:youtube_messenger_app/logic/cubits/chat/chat_state.dart';
-import 'package:youtube_messenger_app/presentation/chat/chat_functions.dart';
+import 'package:youtube_messenger_app/presentation/chat/Message_bubble.dart';
 import 'package:youtube_messenger_app/presentation/widgets/loading_dots.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:record/record.dart';
@@ -45,6 +44,9 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
   bool _isRecording = false;
   DateTime? _cameraPressStart;
   OverlayEntry? _emojiOverlayEntry;
+  
+  CameraController? _cameraController;
+  String? _videoPath;
 
   //start recording on press
   Future<void> _startVoiceRecording() async {
@@ -128,6 +130,7 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
     }
   }
 
+
   Future<void> _uploadAndSendFile(File file) async {
     final ext = file.path.split('.').last.toLowerCase();
     final type = ['mp4', 'mov', 'avi', 'mkv'].contains(ext)
@@ -145,6 +148,8 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
       type: type,
     );
   }
+
+
 
   @override
   void initState() {
@@ -260,7 +265,7 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
     }
   }
 
-  void _scrollToBottom() {
+void _scrollToBottom() {
     if (_scrollController.hasClients) {
       _scrollController.animateTo(0,
           duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
@@ -274,6 +279,7 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
     }
   }
 
+
   @override
   void dispose() {
     messageController.dispose();
@@ -281,6 +287,343 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
     _chatCubit.leaveChat();
     super.dispose();
   }
+
+  // multi documents method
+  Future<void> _handleDocumentAttachment() async {
+    Navigator.of(context).pop();
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+      allowMultiple: true,
+    );
+    if (result == null) return;
+
+    for (final picked in result.files) {
+      if (picked.path == null) continue;
+
+      final file = File(picked.path!);
+      final fileName = '${Uuid().v4()}_${picked.name}';
+      final ref = FirebaseStorage.instance.ref().child('documents/$fileName');
+      final uploadTask = await ref.putFile(file);
+      final url = await uploadTask.ref.getDownloadURL();
+
+      await _chatCubit.sendMessage(
+        content: url,
+        receiverId: widget.receiverId,
+        type: MessageType.document,
+      );
+    }
+  }
+
+  void _handleAttachmentPressed() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      // Rename the builder's parameter from `context` to `sheetContext`
+      builder: (BuildContext sheetContext) {
+        final size = MediaQuery.of(context).size;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(24, 16, 24, 24),
+          child: Wrap(
+            spacing: size.width * 0.1,
+            runSpacing: size.height * 0.02,
+            alignment: WrapAlignment.center,
+            children: [
+              // PHOTO
+              _buildAttachmentOption(
+                icon: Icons.camera_alt,
+                label: 'Photo',
+                onTap: _handleCameraPhoto,
+              ),
+
+              // VIDEO
+              _buildAttachmentOption(
+                icon: Icons.videocam,
+                label: 'Video',
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  await _handleCameraVideo();
+                },
+              ),
+
+              // GALLERY
+              _buildAttachmentOption(
+                icon: Icons.image,
+                label: 'Gallery',
+                onTap: _handleGalleryAttachment,
+              ),
+
+              // DOCUMENT
+              _buildAttachmentOption(
+                icon: Icons.insert_drive_file,
+                label: 'Document',
+                onTap: _handleDocumentAttachment,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAttachmentOption({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    VoidCallback? onLongPress,
+  }) {
+    final size = MediaQuery.of(context).size;
+    return Column(
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            borderRadius: BorderRadius.circular(size.height * 0.0375),
+            child: Container(
+              width: size.height * 0.075,
+              height: size.height * 0.075,
+              alignment: Alignment.center,
+              decoration: const BoxDecoration(
+                color: Color.fromARGB(255, 244, 231, 232),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon,
+                  size: size.height * 0.026,
+                  color: Color.fromARGB(255, 144, 29, 35)),
+            ),
+          ),
+        ),
+        SizedBox(height: size.height * 0.008),
+        Text(label,
+            style: TextStyle(
+                fontSize: size.height * 0.014,
+                color: Color.fromARGB(255, 15, 23, 42),
+                fontWeight: FontWeight.w600)),
+        SizedBox(height: size.height * 0.01),
+      ],
+    );
+  }
+
+  // for taking pictures
+  Future<void> _handleCameraPhoto() async {
+    Navigator.of(context).pop();
+    if (await Permission.camera.request() != PermissionStatus.granted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Camera permission denied')),
+      );
+      return;
+    }
+    try {
+      final picker = ImagePicker();
+      final photo = await picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 85,
+        maxWidth: 1280,
+      );
+      if (photo == null) return;
+      final ext = '.jpg';
+      final ref =
+          FirebaseStorage.instance.ref().child('chatMedia/${Uuid().v4()}$ext');
+      final upload = await ref.putFile(File(photo.path));
+      final url = await upload.ref.getDownloadURL();
+      await _chatCubit.sendMessage(
+        content: url,
+        receiverId: widget.receiverId,
+        type: MessageType.image,
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Camera error: $e')));
+    }
+  }
+
+
+  // for taking videos
+  Future<void> _handleCameraVideo() async {
+  try {
+    // 1. Check permissions
+    final cameraStatus = await Permission.camera.request();
+    final micStatus = await Permission.microphone.request();
+    
+    if (!cameraStatus.isGranted || !micStatus.isGranted) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Camera & microphone permissions required')),
+      );
+      return;
+    }
+
+    // 2. Initialize camera
+    final cameras = await availableCameras();
+    final backCamera = cameras.firstWhere(
+      (camera) => camera.lensDirection == CameraLensDirection.back,
+    );
+
+    _cameraController = CameraController(
+      backCamera,
+      ResolutionPreset.medium,
+      enableAudio: true,
+    );
+    
+    await _cameraController!.initialize();
+
+    // 3. Start recording
+    final directory = await getTemporaryDirectory();
+    final filePath = '${directory.path}/${DateTime.now().millisecondsSinceEpoch}.mp4';
+    
+    await _cameraController!.startVideoRecording(
+      onAvailable: (image) {}, // Required for some platforms
+    );
+
+    // 4. Show recording UI
+    bool recordingCompleted = false;
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Recording...'),
+        content: SizedBox(
+          width: 200,
+          height: 200,
+          child: CameraPreview(_cameraController!),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.stop, color: Colors.red),
+            onPressed: () {
+              recordingCompleted = true;
+              Navigator.pop(context);
+            },
+          ),
+        ],
+      ),
+    );
+
+    // 5. Stop recording
+    final videoFile = await _cameraController!.stopVideoRecording();
+if (!recordingCompleted) {
+  // Delete the temporary file
+  final file = File(videoFile.path);
+  if (await file.exists()) {
+    await file.delete();
+  }
+  return;
+}
+
+    // 6. Process video
+    await _processVideoFile(videoFile.path);
+
+  } catch (e) {
+    debugPrint('Video error: $e');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Video error: ${e.toString()}')),
+      );
+    }
+  } finally {
+    await _cameraController?.dispose();
+    if (mounted) {
+      setState(() {
+        _isRecording = false;
+        _cameraController = null;
+      });
+    }
+  }
+}
+
+Future<void> _processVideoFile(String path) async {
+  bool uploadCancelled = false;
+  
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => WillPopScope(
+      onWillPop: () async {
+        uploadCancelled = true;
+        return true;
+      },
+      child: AlertDialog(
+        title: const Text('Processing Video'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () {
+                uploadCancelled = true;
+                Navigator.pop(context);
+              },
+              child: const Text('Cancel Upload'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  try {
+    final file = File(path);
+    if (!file.existsSync() || file.lengthSync() < 1024) {
+      throw Exception('Invalid video file');
+    }
+
+    final fileName = 'video_${DateTime.now().millisecondsSinceEpoch}.mp4';
+    final ref = FirebaseStorage.instance.ref().child('chatVideos/$fileName');
+    final uploadTask = ref.putFile(file);
+
+    final snapshot = await uploadTask.whenComplete(() {});
+    
+    if (uploadCancelled || !mounted) {
+      await snapshot.ref.delete();
+      return;
+    }
+
+    final downloadUrl = await snapshot.ref.getDownloadURL();
+
+    await _chatCubit.sendMessage(
+      content: downloadUrl,
+      receiverId: widget.receiverId,
+      type: MessageType.video,
+    );
+
+  } catch (e) {
+    debugPrint('Upload error: $e');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Upload failed: ${e.toString()}')),
+      );
+    }
+  } finally {
+    if (mounted) Navigator.pop(context);
+  }
+}
+
+  // for getting reply type of content displayed in the message bubble
+  String _getReplyDisplayText(ChatMessage message) {
+    String prefix = 'Replying to: ';
+    switch (message.type) {
+      case MessageType.image:
+        return '${prefix}📷 Image';
+      case MessageType.video:
+        return '${prefix}🎥 Video';
+      case MessageType.voice:
+        return '${prefix}🎤 Voice Message';
+      case MessageType.document:
+        return '${prefix}📄 Document';
+      case MessageType.mediaCollection:
+        return '${prefix}🖼️ Media Collection';
+      case MessageType.text:
+      default:
+        return prefix + message.content;
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -643,1248 +986,6 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
       ),
     );
   }
-
-  // multi documents method
-  Future<void> _handleDocumentAttachment() async {
-    Navigator.of(context).pop();
-
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.any,
-      allowMultiple: true,
-    );
-    if (result == null) return;
-
-    for (final picked in result.files) {
-      if (picked.path == null) continue;
-
-      final file = File(picked.path!);
-      final fileName = '${Uuid().v4()}_${picked.name}';
-      final ref = FirebaseStorage.instance.ref().child('documents/$fileName');
-      final uploadTask = await ref.putFile(file);
-      final url = await uploadTask.ref.getDownloadURL();
-
-      await _chatCubit.sendMessage(
-        content: url,
-        receiverId: widget.receiverId,
-        type: MessageType.document,
-      );
-    }
-  }
-
-  void _handleAttachmentPressed() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      // Rename the builder's parameter from `context` to `sheetContext`
-      builder: (BuildContext sheetContext) {
-        final size = MediaQuery.of(context).size;
-        return Padding(
-          padding: EdgeInsets.fromLTRB(24, 16, 24, 24),
-          child: Wrap(
-            spacing: size.width * 0.1,
-            runSpacing: size.height * 0.02,
-            alignment: WrapAlignment.center,
-            children: [
-              // PHOTO
-              _buildAttachmentOption(
-                icon: Icons.camera_alt,
-                label: 'Photo',
-                onTap: _handleCameraPhoto,
-              ),
-
-              // VIDEO
-              _buildAttachmentOption(
-                icon: Icons.videocam,
-                label: 'Video',
-                onTap: () async {
-                  Navigator.of(sheetContext).pop();
-                  await _handleCameraVideo();
-                },
-              ),
-
-              // GALLERY
-              _buildAttachmentOption(
-                icon: Icons.image,
-                label: 'Gallery',
-                onTap: _handleGalleryAttachment,
-              ),
-
-              // DOCUMENT
-              _buildAttachmentOption(
-                icon: Icons.insert_drive_file,
-                label: 'Document',
-                onTap: _handleDocumentAttachment,
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildAttachmentOption({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    VoidCallback? onLongPress,
-  }) {
-    final size = MediaQuery.of(context).size;
-    return Column(
-      children: [
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            onLongPress: onLongPress,
-            borderRadius: BorderRadius.circular(size.height * 0.0375),
-            child: Container(
-              width: size.height * 0.075,
-              height: size.height * 0.075,
-              alignment: Alignment.center,
-              decoration: const BoxDecoration(
-                color: Color.fromARGB(255, 244, 231, 232),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon,
-                  size: size.height * 0.026,
-                  color: Color.fromARGB(255, 144, 29, 35)),
-            ),
-          ),
-        ),
-        SizedBox(height: size.height * 0.008),
-        Text(label,
-            style: TextStyle(
-                fontSize: size.height * 0.014,
-                color: Color.fromARGB(255, 15, 23, 42),
-                fontWeight: FontWeight.w600)),
-        SizedBox(height: size.height * 0.01),
-      ],
-    );
-  }
-
-  // for taking pictures
-  Future<void> _handleCameraPhoto() async {
-    Navigator.of(context).pop();
-    if (await Permission.camera.request() != PermissionStatus.granted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Camera permission denied')),
-      );
-      return;
-    }
-    try {
-      final picker = ImagePicker();
-      final photo = await picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 85,
-        maxWidth: 1280,
-      );
-      if (photo == null) return;
-      final ext = '.jpg';
-      final ref =
-          FirebaseStorage.instance.ref().child('chatMedia/${Uuid().v4()}$ext');
-      final upload = await ref.putFile(File(photo.path));
-      final url = await upload.ref.getDownloadURL();
-      await _chatCubit.sendMessage(
-        content: url,
-        receiverId: widget.receiverId,
-        type: MessageType.image,
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Camera error: $e')));
-    }
-  }
-
-  // for taking videos
-  Future<void> _handleCameraVideo() async {
-    try {
-      // Check permissions first
-      final cameraStatus = await Permission.camera.status;
-      final micStatus = await Permission.microphone.status;
-
-      if (!cameraStatus.isGranted || !micStatus.isGranted) {
-        final results = await [
-          Permission.camera,
-          Permission.microphone,
-        ].request();
-
-        if (results[Permission.camera] != PermissionStatus.granted ||
-            results[Permission.microphone] != PermissionStatus.granted) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Camera & microphone permissions required')),
-          );
-          return;
-        }
-      }
-
-      // Initialize ImagePicker with explicit camera control
-      final picker = ImagePicker();
-      XFile? videoFile;
-
-      try {
-        videoFile = await picker
-            .pickVideo(
-          source: ImageSource.camera,
-          preferredCameraDevice: CameraDevice.rear,
-          maxDuration: const Duration(minutes: 2),
-        )
-            .timeout(const Duration(seconds: 30), onTimeout: () {
-          throw TimeoutException('Camera took too long to respond');
-        });
-      } catch (e) {
-        debugPrint('Camera error: $e');
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Camera error: ${e.toString()}')),
-        );
-        return;
-      }
-
-      if (videoFile == null) {
-        debugPrint('User explicitly canceled recording');
-        return;
-      }
-
-      // Show processing dialog with cancellation option
-      bool uploadCancelled = false;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => WillPopScope(
-          onWillPop: () async {
-            uploadCancelled = true;
-            return true;
-          },
-          child: AlertDialog(
-            title: const Text('Processing Video'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const CircularProgressIndicator(),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  child: const Text('Cancel Upload'),
-                  onPressed: () {
-                    uploadCancelled = true;
-                    Navigator.pop(context);
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-
-      try {
-        // Verify file integrity
-        final file = File(videoFile.path);
-        final fileSize = await file.length();
-        debugPrint('Video file size: ${fileSize / 1024} KB');
-
-        if (fileSize < 1024) {
-          throw Exception('Invalid video file (too small)');
-        }
-
-        // Upload and send
-        final fileName = '${DateTime.now().millisecondsSinceEpoch}.mp4';
-        final ref =
-            FirebaseStorage.instance.ref().child('chatVideos/$fileName');
-
-        final uploadTask = ref.putFile(
-          file,
-          SettableMetadata(
-            contentType: 'video/mp4',
-            cacheControl: 'public, max-age=31536000',
-          ),
-        );
-
-        // Monitor upload progress
-        uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
-          debugPrint(
-              'Upload progress: ${snapshot.bytesTransferred}/${snapshot.totalBytes}');
-        });
-
-        // Wait for upload completion
-        await uploadTask.whenComplete(() {
-          if (uploadCancelled) {
-            debugPrint('User cancelled upload');
-            uploadTask.snapshot.ref.delete(); // Cleanup cancelled upload
-          }
-        });
-
-        if (uploadCancelled) {
-          if (!mounted) return;
-          Navigator.pop(context);
-          return;
-        }
-
-        final downloadUrl = await ref.getDownloadURL();
-
-        if (!mounted) return;
-        await _chatCubit.sendMessage(
-          content: downloadUrl,
-          receiverId: widget.receiverId,
-          type: MessageType.video,
-        );
-
-        Navigator.pop(context); // Close processing dialog
-      } catch (e) {
-        debugPrint('Upload error: $e');
-        if (!mounted) return;
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send video: ${e.toString()}')),
-        );
-      }
-    } catch (e) {
-      debugPrint('Global error: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Video error: ${e.toString()}')),
-      );
-    }
-  }
-
-  // for getting reply type of content displayed in the message bubble
-  String _getReplyDisplayText(ChatMessage message) {
-    String prefix = 'Replying to: ';
-    switch (message.type) {
-      case MessageType.image:
-        return '${prefix}📷 Image';
-      case MessageType.video:
-        return '${prefix}🎥 Video';
-      case MessageType.voice:
-        return '${prefix}🎤 Voice Message';
-      case MessageType.document:
-        return '${prefix}📄 Document';
-      case MessageType.mediaCollection:
-        return '${prefix}🖼️ Media Collection';
-      case MessageType.text:
-      default:
-        return prefix + message.content;
-    }
-  }
-}
-
-class MessageBubble extends StatelessWidget {
-  final ChatMessage message;
-  final bool isMe;
-  final ChatCubit chatCubit;
-  final Function(ChatMessage) onReply;
-  final GlobalKey _key = GlobalKey();
-
-  MessageBubble({
-    Key? key,
-    required this.message,
-    required this.isMe,
-    required this.chatCubit,
-    required this.onReply,
-  }) : super(key: key);
-
-  String _getReplyDisplayText(ChatMessage message) {
-    String prefix = 'Replying to: ';
-    switch (message.type) {
-      case MessageType.image:
-        return '${prefix}📷 Image';
-      case MessageType.video:
-        return '${prefix}🎥 Video';
-      case MessageType.voice:
-        return '${prefix}🎤 Voice Message';
-      case MessageType.document:
-        return '${prefix}📄 Document';
-      case MessageType.mediaCollection:
-        return '${prefix}🖼️ Media Collection';
-      case MessageType.deleted:
-        return '${prefix}Deleted message';
-      case MessageType.text:
-      default:
-        return prefix + message.content;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    Widget contentWidget;
-
-    //handle deleted placeholder
-    if (message.type == MessageType.deleted) {
-      return Align(
-        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-        child: Container(
-          margin: EdgeInsets.only(
-            left: isMe ? 64 : 8,
-            right: isMe ? 8 : 64,
-            bottom: 4,
-          ),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade300,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Text(
-            'A message has been deleted',
-            style: TextStyle(
-              fontStyle: FontStyle.italic,
-              color: Colors.grey.shade700,
-            ),
-          ),
-        ),
-      );
-    }
-
-    switch (message.type) {
-      case MessageType.image:
-        contentWidget = GestureDetector(
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => FullMediaViewer(urls: [message.content]),
-            ),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.network(
-              message.content,
-              width: 200,
-              height: 200,
-              fit: BoxFit.cover,
-            ),
-          ),
-        );
-        break;
-
-      case MessageType.voice:
-        contentWidget = AudioBubble(
-          url: message.content,
-          isMe: isMe,
-        );
-        break;
-
-      case MessageType.video:
-        contentWidget = VideoBubble(url: message.content);
-        break;
-
-      case MessageType.mediaCollection:
-        final urls = List<String>.from(jsonDecode(message.content));
-        final count = urls.length;
-        final display = count > 4 ? urls.sublist(0, 3) : urls;
-
-        contentWidget = SizedBox(
-          width: 200,
-          child: GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 4,
-            crossAxisSpacing: 4,
-            children: [
-              for (int i = 0; i < display.length; i++)
-                GestureDetector(
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          FullMediaViewer(urls: urls, initialIndex: i),
-                    ),
-                  ),
-                  child: _buildGridTile(display[i]),
-                ),
-              if (count > 4)
-                GestureDetector(
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          FullMediaViewer(urls: urls, initialIndex: 3),
-                    ),
-                  ),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      _buildGridTile(urls[3]),
-                      Container(
-                        color: Colors.black54,
-                        child: Center(
-                          child: Text(
-                            '+${count - 4}',
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 24),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-        );
-        break;
-
-      default:
-        contentWidget = Text(
-          message.content,
-          style: TextStyle(color: Colors.black),
-        );
-    }
-
-    return GestureDetector(
-      key: _key,
-      onLongPress: () => _showReactionsAndOptions(context),
-      child: Align(
-        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-        child: Container(
-          margin: EdgeInsets.only(
-            left: isMe ? 64 : 8,
-            right: isMe ? 8 : 64,
-            bottom: 4,
-          ),
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade200,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Column(
-                  crossAxisAlignment:
-                      isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                  children: [
-                    if (message.replyToMessageId != null)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        margin: const EdgeInsets.only(bottom: 4),
-                        decoration: BoxDecoration(
-                          color: isMe ? Colors.white24 : Colors.grey.shade200,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          _getReplyDisplayText(message),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontStyle: FontStyle.italic,
-                            color: isMe ? Colors.white70 : Colors.black54,
-                          ),
-                        ),
-                      ),
-                    contentWidget,
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          DateFormat('h:mm a')
-                              .format(message.timestamp.toDate()),
-                          style: TextStyle(
-                            color: Colors.black,
-                            fontSize: 12,
-                          ),
-                        ),
-                        if (isMe) ...[
-                          const SizedBox(width: 4),
-                          Icon(
-                            Icons.done_all,
-                            size: 14,
-                            color: message.status == MessageStatus.read
-                                ? Colors.red
-                                : Colors.black45,
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              if (message.reactions.isNotEmpty)
-                Positioned(
-                  bottom: -10,
-                  right: isMe ? null : 8,
-                  left: isMe ? 8 : null,
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 4,
-                          spreadRadius: 0,
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: message.reactions.entries.map((entry) {
-                        final emoji = entry.key;
-                        final count = entry.value;
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 2),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                emoji,
-                                style: const TextStyle(fontSize: 14),
-                              ),
-                              if (count > 1) ...[
-                                const SizedBox(width: 2),
-                                Text(
-                                  count.toString(),
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showReactionsAndOptions(BuildContext context) {
-    final reactions = ['❤️', '😂', '😮', '😢', '👍', '👎'];
-    final size = MediaQuery.of(context).size;
-
-    // Get the position of the message bubble
-    final RenderBox renderBox =
-        _key.currentContext!.findRenderObject() as RenderBox;
-    final Size bubbleSize = renderBox.size;
-    final Offset bubblePosition = renderBox.localToGlobal(Offset.zero);
-
-    // Calculate the target position (center of screen)
-    final double targetY = (size.height - bubbleSize.height) / 2;
-    final double moveDistance = targetY - bubblePosition.dy;
-
-    // Create an overlay entry for the animated message and reactions
-    late OverlayEntry messageOverlay;
-
-    void removeOverlay() {
-      if (messageOverlay.mounted) {
-        messageOverlay.remove();
-      }
-    }
-
-    messageOverlay = OverlayEntry(
-      builder: (overlayContext) => Stack(
-        children: [
-          // Darkened background
-          Positioned.fill(
-            child: GestureDetector(
-              onTapDown: (_) => removeOverlay(),
-              child: Container(
-                color: Colors.black.withOpacity(0.4),
-              ),
-            ),
-          ),
-
-          // Animated message bubble
-          AnimatedPositioned(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            top: targetY,
-            child: Center(
-              child: Material(
-                color: Colors.transparent,
-                child: Center(
-                  child: Expanded(
-                    child: buildMessageContent(),
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          // Reactions menu
-          Positioned(
-            top: targetY - 60, // Position above the message
-            left: (size.width - (size.width * 0.60)) / 2, // Center horizontally
-            child: Material(
-              color: Colors.transparent,
-              child: Container(
-                width: size.width * 0.60,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(30),
-                  boxShadow: [
-                    BoxShadow(
-                      offset: Offset(0, 2),
-                      blurRadius: 8,
-                      color: Colors.black.withOpacity(0.2),
-                    ),
-                  ],
-                ),
-                padding: EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: reactions.map((emoji) {
-                    return TweenAnimationBuilder<double>(
-                      duration: Duration(milliseconds: 200),
-                      curve: Curves.easeOutBack,
-                      tween: Tween(begin: 0.0, end: 1.0),
-                      builder: (context, value, child) {
-                        return Transform.scale(
-                          scale: value,
-                          child: GestureDetector(
-                            onTap: () {
-                              chatCubit.addReaction(
-                                messageId: message.id,
-                                emoji: emoji,
-                              );
-                              removeOverlay();
-                            },
-                            child: Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 4),
-                              child: Text(
-                                emoji,
-                                style: TextStyle(fontSize: 24),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    // Insert the overlay
-    Overlay.of(context).insert(messageOverlay);
-
-    // Show options bottom sheet
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (bottomSheetContext) {
-        final isText = message.type == MessageType.text;
-        final isMe = message.senderId == chatCubit.currentUserId;
-
-        return SafeArea(
-          child: Wrap(
-            children: [
-              if (isText)
-                _buildAnimatedOption(
-                  icon: Icons.copy,
-                  title: 'Copy',
-                  onTap: () {
-                    Clipboard.setData(ClipboardData(text: message.content));
-                    removeOverlay();
-                    Navigator.pop(bottomSheetContext);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Message copied')),
-                    );
-                  },
-                ),
-              _buildAnimatedOption(
-                icon: Icons.reply,
-                title: 'Reply',
-                onTap: () {
-                  removeOverlay();
-                  Navigator.pop(bottomSheetContext);
-                  onReply(message);
-                },
-              ),
-              if (isMe && isText)
-                _buildAnimatedOption(
-                  icon: Icons.edit,
-                  title: 'Edit',
-                  onTap: () {
-                    removeOverlay();
-                    Navigator.pop(bottomSheetContext);
-                    _showEditDialog(context);
-                  },
-                ),
-              if (isMe)
-                _buildAnimatedOption(
-                  icon: Icons.delete_forever,
-                  title: 'Unsend',
-                  isDestructive: true,
-                  onTap: () {
-                    removeOverlay();
-                    Navigator.pop(bottomSheetContext);
-                    chatCubit.deleteMessage(message.id);
-                  },
-                ),
-              _buildAnimatedOption(
-                icon: Icons.close,
-                title: 'Cancel',
-                onTap: () {
-                  removeOverlay();
-                  Navigator.pop(bottomSheetContext);
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    ).then((_) => removeOverlay());
-  }
-
-  // Helper method to build the message content
-  Widget buildMessageContent() {
-    return Container(
-      margin: EdgeInsets.only(
-        left: isMe ? 64 : 8,
-        right: isMe ? 8 : 64,
-        bottom: 4,
-      ),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade200,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment:
-            isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (message.replyToMessageId != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              margin: const EdgeInsets.only(bottom: 4),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                _getReplyDisplayText(message),
-                style: TextStyle(
-                  fontStyle: FontStyle.italic,
-                  color: Colors.grey[600],
-                ),
-              ),
-            ),
-          if (message.type == MessageType.text)
-            Text(message.content)
-          else if (message.type == MessageType.image)
-            Image.network(message.content,
-                width: 200, height: 200, fit: BoxFit.cover)
-          else if (message.type == MessageType.video)
-            VideoBubble(url: message.content)
-          else if (message.type == MessageType.voice)
-            AudioBubble(url: message.content, isMe: isMe)
-          else
-            Text(message.content),
-          const SizedBox(height: 4),
-          Text(
-            DateFormat('h:mm a').format(message.timestamp.toDate()),
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // edit message
-  void _showEditDialog(BuildContext context) {
-    final controller = TextEditingController(text: message.content);
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Edit Message'),
-        content: TextField(
-          controller: controller,
-          maxLines: null,
-          decoration: const InputDecoration(border: OutlineInputBorder()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              final newText = controller.text.trim();
-              if (newText.isNotEmpty && newText != message.content) {
-                chatCubit.editMessage(
-                  messageId: message.id,
-                  newContent: newText,
-                );
-              }
-              Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAnimatedOption({
-    required IconData icon,
-    required String title,
-    required VoidCallback onTap,
-    bool isDestructive = false,
-  }) {
-    return TweenAnimationBuilder<double>(
-      duration: Duration(milliseconds: 200),
-      curve: Curves.easeOutBack,
-      tween: Tween(begin: 0.0, end: 1.0),
-      builder: (context, value, child) {
-        return Transform.translate(
-          offset: Offset(0, (1 - value) * 20),
-          child: ListTile(
-            leading: Icon(
-              icon,
-              color: isDestructive ? Colors.red : null,
-            ),
-            title: Text(
-              title,
-              style: TextStyle(
-                color: isDestructive ? Colors.red : null,
-              ),
-            ),
-            onTap: onTap,
-          ),
-        );
-      },
-    );
-  }
-}
-
-//multipile media gridview handler
-Widget _buildGridTile(String url) {
-  final isVideo = url.toLowerCase().endsWith('.mp4');
-  return ClipRRect(
-    borderRadius: BorderRadius.circular(8),
-    child: Stack(
-      fit: StackFit.expand,
-      children: [
-        Image.network(url, fit: BoxFit.cover),
-        if (isVideo)
-          const Center(
-              child: Icon(Icons.play_circle_outline,
-                  size: 40, color: Colors.white70)),
-      ],
-    ),
-  );
-}
-
-class FullMediaViewer extends StatefulWidget {
-  final List<String> urls;
-  final int initialIndex;
-  const FullMediaViewer({
-    Key? key,
-    required this.urls,
-    this.initialIndex = 0,
-  }) : super(key: key);
-
-  @override
-  _FullMediaViewerState createState() => _FullMediaViewerState();
-}
-
-class _FullMediaViewerState extends State<FullMediaViewer> {
-  late final PageController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = PageController(initialPage: widget.initialIndex);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(),
-      body: PageView.builder(
-        controller: _controller,
-        itemCount: widget.urls.length,
-        itemBuilder: (context, i) {
-          final url = widget.urls[i];
-          final isVideo = url.toLowerCase().endsWith('.mp4');
-          return Center(
-            child: isVideo
-                ? VideoBubble(url: url)
-                : Image.network(url, fit: BoxFit.contain),
-          );
-        },
-      ),
-    );
-  }
-}
-
-// video handler
-class VideoBubble extends StatefulWidget {
-  final String url;
-  const VideoBubble({super.key, required this.url});
-
-  @override
-  _VideoBubbleState createState() => _VideoBubbleState();
-}
-
-class _VideoBubbleState extends State<VideoBubble> {
-  late VideoPlayerController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = VideoPlayerController.network(widget.url)
-      ..initialize().then((_) => setState(() {}));
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_controller.value.isInitialized) {
-      return const SizedBox(
-        width: 200,
-        height: 200,
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    return GestureDetector(
-      onTap: () => _controller.value.isPlaying
-          ? _controller.pause()
-          : _controller.play(),
-      child: AspectRatio(
-        aspectRatio: _controller.value.aspectRatio,
-        child: VideoPlayer(_controller),
-      ),
-    );
-  }
-}
-
-class AudioBubble extends StatefulWidget {
-  final String url;
-  final bool isMe;
-  const AudioBubble({
-    Key? key,
-    required this.url,
-    this.isMe = false,
-  }) : super(key: key);
-
-  @override
-  _AudioBubbleState createState() => _AudioBubbleState();
-}
-
-class _AudioBubbleState extends State<AudioBubble> {
-  late final AudioPlayer _player;
-  Duration _total = Duration.zero;
-  Duration _position = Duration.zero;
-  PlayerState _state = PlayerState.stopped;
-
-  @override
-  void initState() {
-    super.initState();
-    _player = AudioPlayer()
-      ..onPlayerStateChanged.listen((s) {
-        setState(() => _state = s);
-      })
-      ..onDurationChanged.listen((d) {
-        setState(() => _total = d);
-      })
-      ..onPositionChanged.listen((p) {
-        setState(() => _position = p);
-      });
-
-    // Preload the audio to get its duration
-    _loadAudioDuration();
-  }
-
-  Future<void> _loadAudioDuration() async {
-    try {
-      await _player.setSource(UrlSource(widget.url));
-      // Wait a moment for the player to process the source
-      await Future.delayed(const Duration(milliseconds: 100));
-      final duration = await _player.getDuration();
-      if (duration != null) {
-        setState(() {
-          _total = duration;
-        });
-      }
-      await _player.stop();
-    } catch (e) {
-      // Handle error if needed
-    }
-  }
-
-  @override
-  void dispose() {
-    _player.dispose();
-    super.dispose();
-  }
-
-  String _format(Duration d) {
-    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final iconColor = Theme.of(context).primaryColor;
-    final progressColor = Theme.of(context).primaryColor;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade200,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Play/Pause button
-          IconButton(
-            splashColor: Colors.transparent,
-            highlightColor: Colors.transparent,
-            iconSize: 28,
-            icon: Icon(
-              _state == PlayerState.playing
-                  ? Icons.pause_circle_filled
-                  : Icons.play_circle_outline,
-              color: iconColor,
-            ),
-            onPressed: () {
-              if (_state == PlayerState.playing) {
-                _player.pause();
-              } else {
-                _player.play(UrlSource(widget.url));
-              }
-            },
-          ),
-          const SizedBox(width: 8),
-          // Start time
-          Text(
-            _format(_position),
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(width: 8),
-          // Waveform (static bars for now)
-          Expanded(
-            child: Container(
-              height: 32,
-              alignment: Alignment.center,
-              child: CustomPaint(
-                painter: _WaveformProgressPainter(
-                  progress: _total.inMilliseconds == 0
-                      ? 0
-                      : _position.inMilliseconds / _total.inMilliseconds,
-                  playedColor: Theme.of(context).primaryColor,
-                  unplayedColor: Colors.grey[300]!,
-                ),
-                size: const Size(double.infinity, 32),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          // End time
-          Text(
-            _format(_total),
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.black54,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WaveformPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xFFB2DFDB)
-      ..strokeWidth = 3
-      ..strokeCap = StrokeCap.round;
-
-    // Draw static bars (you can randomize or use a fixed pattern)
-    final barCount = 20;
-    final barWidth = size.width / (barCount * 1.5);
-    for (int i = 0; i < barCount; i++) {
-      final x = i * barWidth * 1.5 + barWidth / 2;
-      final barHeight = size.height * (0.3 + 0.7 * (i % 2 == 0 ? 0.7 : 0.4));
-      final y1 = (size.height - barHeight) / 2;
-      final y2 = y1 + barHeight;
-      canvas.drawLine(Offset(x, y1), Offset(x, y2), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _WaveformProgressPainter extends CustomPainter {
-  final double progress; // 0.0 to 1.0
-  final Color playedColor;
-  final Color unplayedColor;
-
-  _WaveformProgressPainter({
-    required this.progress,
-    required this.playedColor,
-    required this.unplayedColor,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final barCount = 20;
-    final barWidth = size.width / (barCount * 1.5);
-    for (int i = 0; i < barCount; i++) {
-      final x = i * barWidth * 1.5 + barWidth / 2;
-      final barHeight = size.height * (0.3 + 0.7 * (i % 2 == 0 ? 0.7 : 0.4));
-      final y1 = (size.height - barHeight) / 2;
-      final y2 = y1 + barHeight;
-
-      final barProgress = (i + 1) / barCount;
-      final color = barProgress <= progress ? playedColor : unplayedColor;
-
-      final paint = Paint()
-        ..color = color
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round;
-
-      canvas.drawLine(Offset(x, y1), Offset(x, y2), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
 class _MediaPreviewSheet extends StatelessWidget {
@@ -1940,4 +1041,4 @@ class _MediaPreviewSheet extends StatelessWidget {
       ),
     );
   }
-}
+}  
