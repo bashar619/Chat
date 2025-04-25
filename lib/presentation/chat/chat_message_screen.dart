@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:camera/camera.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,10 +18,12 @@ import 'package:youtube_messenger_app/data/services/service_locator.dart';
 import 'package:youtube_messenger_app/logic/cubits/chat/chat_cubit.dart';
 import 'package:youtube_messenger_app/logic/cubits/chat/chat_state.dart';
 import 'package:youtube_messenger_app/presentation/chat/Message_bubble.dart';
+import 'package:youtube_messenger_app/presentation/chat/media_handler.dart';
 import 'package:youtube_messenger_app/presentation/widgets/loading_dots.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:record/record.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:safe_text/safe_text.dart';
 
 class ChatMessageScreen extends StatefulWidget {
   final String receiverId;
@@ -44,9 +47,11 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
   bool _isRecording = false;
   DateTime? _cameraPressStart;
   OverlayEntry? _emojiOverlayEntry;
-  
   CameraController? _cameraController;
-  String? _videoPath;
+  bool _isCameraInitialized = false;
+  bool _isRecordingVideo = false;
+  String? _videoFilePath;
+  bool _hasBadWords = false;
 
   //start recording on press
   Future<void> _startVoiceRecording() async {
@@ -130,7 +135,6 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
     }
   }
 
-
   Future<void> _uploadAndSendFile(File file) async {
     final ext = file.path.split('.').last.toLowerCase();
     final type = ['mp4', 'mov', 'avi', 'mkv'].contains(ext)
@@ -148,8 +152,6 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
       type: type,
     );
   }
-
-
 
   @override
   void initState() {
@@ -253,19 +255,38 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
     }
   }
 
-  void _onTextChanged() {
-    final isComposing = messageController.text.isNotEmpty;
-    if (isComposing != _isComposing) {
+  Future<void> _onTextChanged() async {
+    final current = messageController.text;
+    final isNowComposing = current.isNotEmpty;
+
+    // 1) Immediately update whether we're composing at all
+    if (isNowComposing != _isComposing) {
       setState(() {
-        _isComposing = isComposing;
+        _isComposing = isNowComposing;
       });
-      if (isComposing) {
-        _chatCubit.startTyping();
-      }
+    }
+
+    // 2) Check for bad words (runs off the UI thread)
+    final hasBad = await SafeText.containsBadWord(
+      text: current,
+      useDefaultWords: true,
+    ); 
+
+    // 3) Only update _hasBadWords if the text hasn't changed underneath us
+    if (!mounted || messageController.text != current) return;
+    if (hasBad != _hasBadWords) {
+      setState(() {
+        _hasBadWords = hasBad;
+      });
+    }
+
+    // 4) Your existing “typing…” signal
+    if (isNowComposing) {
+      _chatCubit.startTyping();
     }
   }
 
-void _scrollToBottom() {
+  void _scrollToBottom() {
     if (_scrollController.hasClients) {
       _scrollController.animateTo(0,
           duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
@@ -278,7 +299,6 @@ void _scrollToBottom() {
       _previousMessages = messages;
     }
   }
-
 
   @override
   void dispose() {
@@ -442,167 +462,137 @@ void _scrollToBottom() {
     }
   }
 
-
   // for taking videos
   Future<void> _handleCameraVideo() async {
-  try {
-    // 1. Check permissions
+    // Request permissions
     final cameraStatus = await Permission.camera.request();
     final micStatus = await Permission.microphone.request();
-    
-    if (!cameraStatus.isGranted || !micStatus.isGranted) {
+    if (cameraStatus != PermissionStatus.granted ||
+        micStatus != PermissionStatus.granted) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Camera & microphone permissions required')),
+        const SnackBar(
+          content: Text('Camera & microphone permissions required'),
+        ),
       );
       return;
     }
 
-    // 2. Initialize camera
+    // Initialize the camera controller as before...
     final cameras = await availableCameras();
-    final backCamera = cameras.firstWhere(
-      (camera) => camera.lensDirection == CameraLensDirection.back,
+    final back = cameras.firstWhere(
+      (c) => c.lensDirection == CameraLensDirection.back,
+      orElse: () => cameras.first,
     );
-
-    _cameraController = CameraController(
-      backCamera,
-      ResolutionPreset.medium,
+    await _cameraController?.dispose();
+    final controller = CameraController(
+      back,
+      ResolutionPreset.high,
       enableAudio: true,
+      imageFormatGroup: ImageFormatGroup.yuv420,
     );
-    
-    await _cameraController!.initialize();
+    try {
+      await controller.initialize();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Camera init failed: $e')));
+      return;
+    }
 
-    // 3. Start recording
-    final directory = await getTemporaryDirectory();
-    final filePath = '${directory.path}/${DateTime.now().millisecondsSinceEpoch}.mp4';
-    
-    await _cameraController!.startVideoRecording(
-      onAvailable: (image) {}, // Required for some platforms
+    // Push full‑screen recorder page and wait for the recorded file path
+    final videoPath = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => VideoRecorderPage(controller: controller),
+      ),
     );
+    // controller will be disposed by the recorder page
 
-    // 4. Show recording UI
-    bool recordingCompleted = false;
-    await showDialog(
+    if (videoPath != null) {
+      await _processVideoFile(videoPath);
+    }
+  }
+
+  Future<void> _processVideoFile(String path) async {
+    bool uploadCancelled = false;
+
+    if (FirebaseAuth.instance.currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You must be logged in!')),
+      );
+      return;
+    }
+    showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Recording...'),
-        content: SizedBox(
-          width: 200,
-          height: 200,
-          child: CameraPreview(_cameraController!),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.stop, color: Colors.red),
-            onPressed: () {
-              recordingCompleted = true;
-              Navigator.pop(context);
-            },
+      builder: (context) => WillPopScope(
+        onWillPop: () async {
+          uploadCancelled = true;
+          return true;
+        },
+        child: AlertDialog(
+          title: const Text('Processing Video'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  uploadCancelled = true;
+                  Navigator.pop(context);
+                },
+                child: const Text('Cancel Upload'),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
-
-    // 5. Stop recording
-    final videoFile = await _cameraController!.stopVideoRecording();
-if (!recordingCompleted) {
-  // Delete the temporary file
-  final file = File(videoFile.path);
-  if (await file.exists()) {
-    await file.delete();
-  }
-  return;
-}
-
-    // 6. Process video
-    await _processVideoFile(videoFile.path);
-
-  } catch (e) {
-    debugPrint('Video error: $e');
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Video error: ${e.toString()}')),
-      );
-    }
-  } finally {
-    await _cameraController?.dispose();
-    if (mounted) {
-      setState(() {
-        _isRecording = false;
-        _cameraController = null;
-      });
-    }
-  }
-}
-
-Future<void> _processVideoFile(String path) async {
-  bool uploadCancelled = false;
-  
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) => WillPopScope(
-      onWillPop: () async {
-        uploadCancelled = true;
-        return true;
-      },
-      child: AlertDialog(
-        title: const Text('Processing Video'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () {
-                uploadCancelled = true;
-                Navigator.pop(context);
-              },
-              child: const Text('Cancel Upload'),
-            ),
-          ],
         ),
       ),
-    ),
-  );
-
-  try {
-    final file = File(path);
-    if (!file.existsSync() || file.lengthSync() < 1024) {
-      throw Exception('Invalid video file');
-    }
-
-    final fileName = 'video_${DateTime.now().millisecondsSinceEpoch}.mp4';
-    final ref = FirebaseStorage.instance.ref().child('chatVideos/$fileName');
-    final uploadTask = ref.putFile(file);
-
-    final snapshot = await uploadTask.whenComplete(() {});
-    
-    if (uploadCancelled || !mounted) {
-      await snapshot.ref.delete();
-      return;
-    }
-
-    final downloadUrl = await snapshot.ref.getDownloadURL();
-
-    await _chatCubit.sendMessage(
-      content: downloadUrl,
-      receiverId: widget.receiverId,
-      type: MessageType.video,
     );
 
-  } catch (e) {
-    debugPrint('Upload error: $e');
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Upload failed: ${e.toString()}')),
+    try {
+      final file = File(path);
+      if (!file.existsSync() || file.lengthSync() < 1024) {
+        throw Exception('Invalid video file');
+      }
+
+      final fileName = 'video_${DateTime.now().millisecondsSinceEpoch}.mp4';
+      final ref = FirebaseStorage.instance.ref().child('chatVideos/$fileName');
+      final uploadTask = ref.putFile(
+        file,
+        SettableMetadata(
+          contentType: 'video/mp4',
+          customMetadata: {
+            'uploaderId': FirebaseAuth.instance.currentUser!.uid,
+          },
+        ),
       );
+
+      final snapshot = await uploadTask.whenComplete(() {});
+
+      if (uploadCancelled || !mounted) {
+        await snapshot.ref.delete();
+        return;
+      }
+
+      final downloadUrl = await snapshot.ref.getDownloadURL();
+
+      await _chatCubit.sendMessage(
+        content: downloadUrl,
+        receiverId: widget.receiverId,
+        type: MessageType.video,
+      );
+    } catch (e) {
+      debugPrint('Upload error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Upload failed: ${e.toString()}')),
+        );
+      }
+    } finally {
+      if (mounted) Navigator.pop(context);
     }
-  } finally {
-    if (mounted) Navigator.pop(context);
   }
-}
 
   // for getting reply type of content displayed in the message bubble
   String _getReplyDisplayText(ChatMessage message) {
@@ -623,7 +613,6 @@ Future<void> _processVideoFile(String path) async {
         return prefix + message.content;
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -882,25 +871,31 @@ Future<void> _processVideoFile(String path) async {
                           ),
                           const SizedBox(width: 8),
                           if (_isComposing)
-                            InkWell(
-                              onTap: _handleSendMessage,
-                              child: Container(
-                                padding: EdgeInsets.all(size.height * 0.02),
-                                decoration: BoxDecoration(
-                                  color: Theme.of(context).primaryColor,
-                                  shape: BoxShape.circle,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      offset: Offset(0, 7.5),
-                                      blurRadius: 10,
-                                      color: Colors.black.withOpacity(0.15),
+                            IgnorePointer(
+                              ignoring: _hasBadWords,
+                              child: Opacity(
+                                opacity: _hasBadWords ? 0.5 : 1.0,
+                                child: InkWell(
+                                  onTap: _handleSendMessage,
+                                  child: Container(
+                                    padding: EdgeInsets.all(size.height * 0.02),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context).primaryColor,
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          offset: Offset(0, 7.5),
+                                          blurRadius: 10,
+                                          color: Colors.black.withOpacity(0.15),
+                                        ),
+                                      ],
                                     ),
-                                  ],
-                                ),
-                                child: Icon(
-                                  Icons.send,
-                                  color: Colors.white,
-                                  size: size.height * 0.022,
+                                    child: Icon(
+                                      Icons.send,
+                                      color: Colors.white,
+                                      size: size.height * 0.022,
+                                    ),
+                                  ),
                                 ),
                               ),
                             )
@@ -1041,4 +1036,4 @@ class _MediaPreviewSheet extends StatelessWidget {
       ),
     );
   }
-}  
+}

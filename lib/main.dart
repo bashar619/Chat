@@ -1,4 +1,5 @@
 // lib/main.dart
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:youtube_messenger_app/config/theme/app_theme.dart';
@@ -13,6 +14,8 @@ import 'package:youtube_messenger_app/router/app_router.dart';
 
 void main() async {
   await setupServiceLocator();
+  WidgetsFlutterBinding.ensureInitialized();
+  final cameras = await availableCameras();
   runApp(const MyApp());
 }
 

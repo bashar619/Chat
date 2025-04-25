@@ -1,40 +1,56 @@
 // lib/presentation/chat/media_handler.dart
 import 'dart:async';
 import 'dart:io';
-
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:youtube_messenger_app/presentation/chat/Message_bubble.dart';
 
-
+/// A widget that plays a video bubble without rebuilding every frame.
 class VideoBubble extends StatefulWidget {
   final String url;
-  const VideoBubble({super.key, required this.url});
+  const VideoBubble({Key? key, required this.url}) : super(key: key);
 
   @override
   _VideoBubbleState createState() => _VideoBubbleState();
 }
 
-class _VideoBubbleState extends State<VideoBubble> {
-  late VideoPlayerController _controller;
+class _VideoBubbleState extends State<VideoBubble>
+    with AutomaticKeepAliveClientMixin {
+  late final VideoPlayerController _ctrl;
+  bool _isInitialized = false;
+
+  @override
+  bool get wantKeepAlive => true; // Keep state alive
 
   @override
   void initState() {
     super.initState();
-    _controller = VideoPlayerController.network(widget.url)
-      ..initialize().then((_) => setState(() {}));
+    _ctrl = VideoPlayerController.network(widget.url)
+      ..initialize().then((_) {
+        if (mounted) setState(() => _isInitialized = true);
+      });
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _ctrl.dispose();
     super.dispose();
+  }
+
+  void _togglePlay() {
+    if (_ctrl.value.isPlaying) {
+      _ctrl.pause();
+    } else {
+      _ctrl.play();
+    }
+    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_controller.value.isInitialized) {
+    super.build(context);
+    if (!_isInitialized) {
       return const SizedBox(
         width: 200,
         height: 200,
@@ -42,13 +58,123 @@ class _VideoBubbleState extends State<VideoBubble> {
       );
     }
 
-    return GestureDetector(
-      onTap: () => _controller.value.isPlaying
-          ? _controller.pause()
-          : _controller.play(),
-      child: AspectRatio(
-        aspectRatio: _controller.value.aspectRatio,
-        child: VideoPlayer(_controller),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          AspectRatio(
+            aspectRatio: _ctrl.value.aspectRatio,
+            child: VideoPlayer(_ctrl),
+          ),
+          IconButton(
+            iconSize: 48,
+            icon: Icon(
+              _ctrl.value.isPlaying
+                  ? Icons.pause_circle_filled
+                  : Icons.play_circle_filled,
+              color: Colors.white,
+            ),
+            onPressed: _togglePlay,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Full-screen video viewer
+class FullScreenVideoPage extends StatefulWidget {
+  final String url;
+  final Duration initialPosition;
+  final bool autoPlay;
+  const FullScreenVideoPage({
+    Key? key,
+    required this.url,
+    required this.initialPosition,
+    this.autoPlay = false,
+  }) : super(key: key);
+
+  @override
+  _FullScreenVideoPageState createState() => _FullScreenVideoPageState();
+}
+
+class _FullScreenVideoPageState extends State<FullScreenVideoPage> {
+  late final VideoPlayerController _ctrl;
+  bool _showControls = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = VideoPlayerController.network(widget.url)
+      ..initialize().then((_) {
+        _ctrl.seekTo(widget.initialPosition);
+        if (widget.autoPlay) _ctrl.play();
+        setState(() {});
+      });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _toggleControls() => setState(() => _showControls = !_showControls);
+  void _togglePlay() => setState(() {
+        _ctrl.value.isPlaying ? _ctrl.pause() : _ctrl.play();
+      });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: GestureDetector(
+        onTap: _toggleControls,
+        child: Stack(
+          children: [
+            Center(
+              child: _ctrl.value.isInitialized
+                  ? AspectRatio(
+                      aspectRatio: _ctrl.value.aspectRatio,
+                      child: VideoPlayer(_ctrl),
+                    )
+                  : const CircularProgressIndicator(),
+            ),
+            if (_showControls && _ctrl.value.isInitialized) ...[
+              SafeArea(
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ),
+              ),
+              Center(
+                child: IconButton(
+                  iconSize: 64,
+                  color: Colors.white,
+                  icon: Icon(
+                    _ctrl.value.isPlaying
+                        ? Icons.pause_circle_filled
+                        : Icons.play_circle_filled,
+                  ),
+                  onPressed: _togglePlay,
+                ),
+              ),
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: VideoProgressIndicator(
+                  _ctrl,
+                  allowScrubbing: true,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -57,7 +183,8 @@ class _VideoBubbleState extends State<VideoBubble> {
 class AudioBubble extends StatefulWidget {
   final String url;
   final bool isMe;
-  const AudioBubble({Key? key, required this.url, this.isMe = false}) : super(key: key);
+  const AudioBubble({Key? key, required this.url, this.isMe = false})
+      : super(key: key);
 
   @override
   _AudioBubbleState createState() => _AudioBubbleState();
@@ -76,16 +203,16 @@ class _AudioBubbleState extends State<AudioBubble> {
   void initState() {
     super.initState();
     _player = AudioPlayer();
-    
+
     // Setup listeners with subscription tracking
     _playerStateSubscription = _player.onPlayerStateChanged.listen((s) {
       if (mounted) setState(() => _state = s);
     });
-    
+
     _durationSubscription = _player.onDurationChanged.listen((d) {
       if (mounted) setState(() => _total = d);
     });
-    
+
     _positionSubscription = _player.onPositionChanged.listen((p) {
       if (mounted) setState(() => _position = p);
     });
@@ -98,7 +225,7 @@ class _AudioBubbleState extends State<AudioBubble> {
       await _player.setSource(UrlSource(widget.url));
       await Future.delayed(const Duration(milliseconds: 100));
       final duration = await _player.getDuration();
-      
+
       if (duration != null && mounted) {
         setState(() {
           _total = duration;
@@ -116,7 +243,7 @@ class _AudioBubbleState extends State<AudioBubble> {
     _playerStateSubscription.cancel();
     _durationSubscription.cancel();
     _positionSubscription.cancel();
-    
+
     // Then dispose the player
     _player.dispose();
     super.dispose();
@@ -222,7 +349,10 @@ class _FullMediaViewerState extends State<FullMediaViewer> {
   @override
   void initState() {
     super.initState();
-    _controller = PageController(initialPage: widget.initialIndex);
+    _controller = PageController(
+      initialPage: widget.initialIndex,
+      keepPage: true, // Cache pages
+    );
   }
 
   @override
@@ -230,7 +360,7 @@ class _FullMediaViewerState extends State<FullMediaViewer> {
     _controller.dispose();
     super.dispose();
   }
- 
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -243,7 +373,7 @@ class _FullMediaViewerState extends State<FullMediaViewer> {
           final isVideo = url.toLowerCase().endsWith('.mp4');
           return Center(
             child: isVideo
-                ? VideoBubble(url: url)
+                ? VideoBubble(key: ValueKey(url), url: url)
                 : Image.network(url, fit: BoxFit.contain),
           );
         },
@@ -287,4 +417,102 @@ class _WaveformProgressPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
+
+class VideoRecorderPage extends StatefulWidget {
+  final CameraController controller;
+  const VideoRecorderPage({Key? key, required this.controller})
+      : super(key: key);
+
+  @override
+  _VideoRecorderPageState createState() => _VideoRecorderPageState();
+}
+
+class _VideoRecorderPageState extends State<VideoRecorderPage> {
+  bool _isRecording = false;
+  CameraController get _ctrl => widget.controller;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggleRecording() async {
+    if (_isRecording) {
+      final file = await _ctrl.stopVideoRecording();
+      setState(() => _isRecording = false);
+      Navigator.of(context).pop(file.path);
+    } else {
+      await _ctrl.prepareForVideoRecording();
+      await _ctrl.startVideoRecording();
+      setState(() => _isRecording = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: CameraPreview(_ctrl),
+          ),
+          // Top bar
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+          ),
+          // Center recording indicator
+          if (_isRecording)
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.black45,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  '● REC',
+                  style: TextStyle(color: Colors.red, fontSize: 16),
+                ),
+              ),
+            ),
+          // Bottom controls
+          SafeArea(
+            bottom: true,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 24),
+                child: GestureDetector(
+                  onTap: _toggleRecording,
+                  child: Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _isRecording ? Colors.red : Colors.white,
+                      border: Border.all(color: Colors.white54, width: 2),
+                    ),
+                    child: Icon(
+                      _isRecording ? Icons.stop : Icons.videocam,
+                      size: 36,
+                      color: _isRecording ? Colors.white : Colors.black,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

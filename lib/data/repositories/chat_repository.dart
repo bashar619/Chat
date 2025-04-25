@@ -152,6 +152,52 @@ class ChatRepository extends BaseRepository {
     return snapshot.docs.map((doc) => ChatMessage.fromFirestore(doc)).toList();
   }
 
+  // 1) one-time initial load
+  Future<List<ChatMessage>> loadInitialMessages(
+    String roomId, {
+    int pageSize = 20,
+  }) async {
+    final snap = await _chatRooms
+        .doc(roomId)
+        .collection("messages")
+        .orderBy('timestamp', descending: true)
+        .limit(pageSize)
+        .get();
+    return snap.docs.map((d) => ChatMessage.fromFirestore(d)).toList();
+  }
+
+  // 2) one-time “load older” when scrolling up
+  Future<List<ChatMessage>> loadOlderMessages(
+    String roomId,
+    DocumentSnapshot lastDoc, {
+    int pageSize = 20,
+  }) async {
+    final snap = await _chatRooms
+        .doc(roomId)
+        .collection("messages")
+        .orderBy('timestamp', descending: true)
+        .startAfterDocument(lastDoc)
+        .limit(pageSize)
+        .get();
+    return snap.docs.map((d) => ChatMessage.fromFirestore(d)).toList();
+  }
+
+  // 3) real-time listener only for brand-new messages
+  Stream<ChatMessage> subscribeToNewMessages(
+    String roomId,
+    Timestamp since, {
+    bool ascending = true,
+  }) {
+    return _chatRooms
+        .doc(roomId)
+        .collection("messages")
+        .orderBy('timestamp', descending: !ascending)
+        .where('timestamp', isGreaterThan: since)
+        .snapshots()
+        .expand((snap) => snap.docs)
+        .map((doc) => ChatMessage.fromFirestore(doc));
+  }
+
   Stream<List<ChatRoomModel>> getChatRooms(String userId) {
     return _chatRooms
         .where("participants", arrayContains: userId)
@@ -171,38 +217,38 @@ class ChatRepository extends BaseRepository {
   }
 
   Future<void> markMessagesAsRead(String chatRoomId, String userId) async {
-  try {
-    final batch = firestore.batch();
+    try {
+      final batch = firestore.batch();
 
-    // Get all unread messages where the user is the receiver.
-    final unreadMessages = await getChatRoomMessages(chatRoomId)
-        .where("receiverId", isEqualTo: userId)
-        .where('status', isEqualTo: MessageStatus.sent.toString())
-        .get();
+      // Get all unread messages where the user is the receiver.
+      final unreadMessages = await getChatRoomMessages(chatRoomId)
+          .where("receiverId", isEqualTo: userId)
+          .where('status', isEqualTo: MessageStatus.sent.toString())
+          .get();
 
-    print("found ${unreadMessages.docs.length} unread messages");
+      print("found ${unreadMessages.docs.length} unread messages");
 
-    // Queue up each message update in the batch.
-    for (final doc in unreadMessages.docs) {
-      batch.update(doc.reference, {
-        'readBy': FieldValue.arrayUnion([userId]),
-        'status': MessageStatus.read.toString(),
+      // Queue up each message update in the batch.
+      for (final doc in unreadMessages.docs) {
+        batch.update(doc.reference, {
+          'readBy': FieldValue.arrayUnion([userId]),
+          'status': MessageStatus.read.toString(),
+        });
+      }
+
+      // Commit all the message updates.
+      await batch.commit();
+
+      // Update the room's lastReadTime for this user.
+      await _chatRooms.doc(chatRoomId).update({
+        'lastReadTime.$userId': Timestamp.now(),
       });
-    } 
 
-    // Commit all the message updates.
-    await batch.commit();
-
-    // Update the room's lastReadTime for this user.
-    await _chatRooms.doc(chatRoomId).update({
-      'lastReadTime.$userId': Timestamp.now(),
-    });
-
-    print("Updated lastReadTime for user $userId in room $chatRoomId");
-  } catch (e) {
-    print("Error marking messages as read: $e");
+      print("Updated lastReadTime for user $userId in room $chatRoomId");
+    } catch (e) {
+      print("Error marking messages as read: $e");
+    }
   }
-}
 
   Future<void> deleteMessage({
     required String chatRoomId,
