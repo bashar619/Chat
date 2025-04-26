@@ -23,7 +23,6 @@ import 'package:youtube_messenger_app/presentation/widgets/loading_dots.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:record/record.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:safe_text/safe_text.dart';
 
 class ChatMessageScreen extends StatefulWidget {
   final String receiverId;
@@ -259,27 +258,12 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
     final current = messageController.text;
     final isNowComposing = current.isNotEmpty;
 
-    // 1) Immediately update whether we're composing at all
+    // Immediately update whether we're composing at all
     if (isNowComposing != _isComposing) {
       setState(() {
         _isComposing = isNowComposing;
       });
     }
-
-    // 2) Check for bad words (runs off the UI thread)
-    final hasBad = await SafeText.containsBadWord(
-      text: current,
-      useDefaultWords: true,
-    ); 
-
-    // 3) Only update _hasBadWords if the text hasn't changed underneath us
-    if (!mounted || messageController.text != current) return;
-    if (hasBad != _hasBadWords) {
-      setState(() {
-        _hasBadWords = hasBad;
-      });
-    }
-
     // 4) Your existing “typing…” signal
     if (isNowComposing) {
       _chatCubit.startTyping();
@@ -871,31 +855,25 @@ class _ChatMessageScreenState extends State<ChatMessageScreen> {
                           ),
                           const SizedBox(width: 8),
                           if (_isComposing)
-                            IgnorePointer(
-                              ignoring: _hasBadWords,
-                              child: Opacity(
-                                opacity: _hasBadWords ? 0.5 : 1.0,
-                                child: InkWell(
-                                  onTap: _handleSendMessage,
-                                  child: Container(
-                                    padding: EdgeInsets.all(size.height * 0.02),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context).primaryColor,
-                                      shape: BoxShape.circle,
-                                      boxShadow: [
-                                        BoxShadow(
-                                          offset: Offset(0, 7.5),
-                                          blurRadius: 10,
-                                          color: Colors.black.withOpacity(0.15),
-                                        ),
-                                      ],
+                            InkWell(
+                              onTap: _handleSendMessage,
+                              child: Container(
+                                padding: EdgeInsets.all(size.height * 0.02),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).primaryColor,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      offset: Offset(0, 7.5),
+                                      blurRadius: 10,
+                                      color: Colors.black.withOpacity(0.15),
                                     ),
-                                    child: Icon(
-                                      Icons.send,
-                                      color: Colors.white,
-                                      size: size.height * 0.022,
-                                    ),
-                                  ),
+                                  ],
+                                ),
+                                child: Icon(
+                                  Icons.send,
+                                  color: Colors.white,
+                                  size: size.height * 0.022,
                                 ),
                               ),
                             )
