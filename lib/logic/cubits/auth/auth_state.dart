@@ -1,5 +1,4 @@
 import 'package:equatable/equatable.dart';
-
 import 'package:youtube_messenger_app/data/models/user_model.dart';
 
 enum AuthStatus {

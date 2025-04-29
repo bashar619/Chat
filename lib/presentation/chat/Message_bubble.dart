@@ -102,7 +102,10 @@ class MessageBubble extends StatelessWidget {
         break;
 
       case MessageType.video:
-        contentWidget = VideoBubble(url: message.content);
+        contentWidget = VideoBubble(
+          url: message.content,
+          key: ValueKey(message.id),
+        );
         break;
 
       case MessageType.mediaCollection:
@@ -527,7 +530,7 @@ class MessageBubble extends StatelessWidget {
             Image.network(message.content,
                 width: 200, height: 200, fit: BoxFit.cover)
           else if (message.type == MessageType.video)
-            VideoBubble(url: message.content)
+            VideoBubble(key: ValueKey(message.id), url: message.content)
           else if (message.type == MessageType.voice)
             AudioBubble(url: message.content, isMe: isMe)
           else

@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:youtube_messenger_app/data/models/chat_message.dart';
+import 'package:youtube_messenger_app/logic/cubits/chat/chat_cubit.dart';
+import 'package:youtube_messenger_app/presentation/chat/Message_bubble.dart';
 
 class MediaPreviewSheet extends StatelessWidget {
   final List<File> files;
@@ -77,3 +79,47 @@ Widget _buildGridTile(String url) {
 }
 }
 
+
+class CacheMessageWidget extends StatefulWidget {
+  final ChatMessage message;
+  final bool isMe;
+  final Function(ChatMessage) onReply;
+  final ChatCubit chatCubit;
+
+  const CacheMessageWidget({
+    super.key,
+    required this.message,
+    required this.isMe,
+    required this.onReply,
+    required this.chatCubit,
+  });
+
+  @override
+  State<CacheMessageWidget> createState() => _CacheMessageWidgetState();
+}
+
+class _CacheMessageWidgetState extends State<CacheMessageWidget> 
+    with AutomaticKeepAliveClientMixin {
+  
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        MessageBubble(
+          message: widget.message,
+          isMe: widget.isMe,
+          chatCubit: widget.chatCubit,
+          onReply: widget.onReply,
+        ),
+        if (widget.message.reactions.isNotEmpty)
+          const SizedBox(height: 20),
+      ],
+    );
+  }
+}

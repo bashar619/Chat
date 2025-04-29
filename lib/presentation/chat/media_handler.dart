@@ -5,8 +5,8 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:youtube_messenger_app/presentation/chat/video_controller_cache.dart';
 
-/// A widget that plays a video bubble without rebuilding every frame.
 class VideoBubble extends StatefulWidget {
   final String url;
   const VideoBubble({Key? key, required this.url}) : super(key: key);
@@ -26,16 +26,16 @@ class _VideoBubbleState extends State<VideoBubble>
   @override
   void initState() {
     super.initState();
-    _ctrl = VideoPlayerController.network(widget.url)
-      ..initialize().then((_) {
-        if (mounted) setState(() => _isInitialized = true);
-      });
+    VideoControllerCache.getController(widget.url).then((c) {
+      if (!mounted) return;
+      _ctrl = c;
+      setState(() => _isInitialized = true);
+    });
   }
 
   @override
   void dispose() {
-    _ctrl.dispose();
-    super.dispose();
+  super.dispose();
   }
 
   void _togglePlay() {
@@ -44,7 +44,6 @@ class _VideoBubbleState extends State<VideoBubble>
     } else {
       _ctrl.play();
     }
-    setState(() {});
   }
 
   @override

@@ -18,6 +18,7 @@ class ChatCubit extends Cubit<ChatState> {
   StreamSubscription? _blockStatusSubscription;
   StreamSubscription? _amIBlockStatusSubscription;
   Timer? typingTimer;
+  
 
   ChatCubit({
     required ChatRepository chatRepository,
